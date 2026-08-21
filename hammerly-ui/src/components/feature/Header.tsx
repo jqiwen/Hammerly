@@ -54,6 +54,7 @@ export default function Header() {
     { name: 'Home', href: '/' },
     { name: 'Auction Listings', href: '/auctions' },
     { name: 'Guide', href: '/guide' },
+    { name: 'FAQ', href: '/faq' },
   ];
 
   return (

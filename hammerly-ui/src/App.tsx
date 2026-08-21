@@ -3,6 +3,7 @@ import { AppRoutes } from "./router";
 import { I18nextProvider } from "react-i18next";
 import i18n from "./i18n";
 import AuthBootstrap from "./components/feature/AuthBootstrap";
+import AiSupportWidget from "./components/ai/AiSupportWidget";
 
 
 function App() {
@@ -11,6 +12,7 @@ function App() {
       <BrowserRouter basename={__BASE_PATH__}>
         <AuthBootstrap />
         <AppRoutes />
+        <AiSupportWidget />
       </BrowserRouter>
     </I18nextProvider>
   );

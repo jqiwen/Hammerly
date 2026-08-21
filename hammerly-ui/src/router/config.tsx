@@ -6,6 +6,7 @@ import Guide from "../pages/guide/page";
 import Auth from "../pages/auth/page";
 import Profile from "../pages/profile/page";
 import Cart from "../pages/cart/page";
+import FAQ from "../pages/faq/page";
 
 const routes: RouteObject[] = [
   {
@@ -23,6 +24,10 @@ const routes: RouteObject[] = [
   {
     path: "/guide",
     element: <Guide />,
+  },
+  {
+    path: "/faq",
+    element: <FAQ />,
   },
   {
     path: "/auth",
