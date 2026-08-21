@@ -56,15 +56,15 @@ export default function AuctionListings() {
     <section id="auctions" className="py-20 bg-gray-50">
       <div className="max-w-7xl mx-auto px-6">
         {/* Section Header */}
-        <div className="flex justify-between items-center mb-16">
+        <div className="flex flex-col gap-6 sm:flex-row sm:justify-between sm:items-center mb-16">
           <div>
-            <h2 className="text-5xl font-bold mb-4">
+            <h2 className="text-4xl sm:text-5xl font-bold mb-4">
               <span className="text-black">FEATURED </span>
               <span className="text-[#8B2635]">AUCTIONS</span>
             </h2>
             <p className="text-xl text-gray-600">Discover unique items and place your bids</p>
           </div>
-          <div className="bg-gray-800 text-white px-6 py-3 rounded-full">
+          <div className="self-start sm:self-auto bg-gray-800 text-white px-6 py-3 rounded-full">
             <span className="font-semibold">{auctionStats.activeLots} Active Lots</span>
           </div>
         </div>
