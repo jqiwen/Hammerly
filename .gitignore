@@ -1,0 +1,9 @@
+# Node
+hammerly-ui/node_modules/
+hammerly-backend/node_modules/
+hammerly-backend/dist/
+
+/node_modules/
+
+hammerly-backend/node_modules/
+
