@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/hammerly-banner.png" alt="Hammerly Banner" width="100%" />
+  <img src="docs/images/hammerly-poster.png" alt="Hammerly Banner" width="100%" />
 </p>
 
 # Hammerly — AI-Powered Auction Platform
