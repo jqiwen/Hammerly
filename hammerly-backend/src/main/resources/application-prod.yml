@@ -1,4 +1,6 @@
 hammerly:
+  ai:
+    diagnostic-enabled: false
   database:
     seed: ${HAMMERLY_SEED_ENABLED:false}
   debug-endpoint:

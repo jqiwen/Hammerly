@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: hammerly-ai
+
+server:
+  port: ${PORT:5001}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

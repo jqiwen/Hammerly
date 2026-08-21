@@ -1,6 +1,6 @@
-# Hammerly Spring Boot Backend
+# Hammerly Core Spring Boot Service
 
-The backend is a Java 21 / Spring Boot 3 application. Controllers preserve the existing HTTP contract, services own business rules and response mapping, repositories isolate Spring JDBC `JdbcTemplate` SQL, and the existing stateless Spring Security/JWT flow remains unchanged. Persistence uses Supabase PostgreSQL through the JDBC driver and HikariCP.
+The `hammerly-backend` directory remains the deployable Core service directory for compatibility with existing tooling. Its Spring application identity is `hammerly-core`. Controllers preserve the existing HTTP contract, services own business rules and response mapping, repositories isolate Spring JDBC `JdbcTemplate` SQL, and the existing stateless Spring Security/JWT flow remains unchanged. Persistence uses Supabase PostgreSQL through the JDBC driver and HikariCP.
 
 Hammerly tables live in the private PostgreSQL schema `hammerly`; the React application never connects to Supabase directly. Flyway applies the migrations in `src/main/resources/db/migration` automatically before the application starts.
 
@@ -34,6 +34,8 @@ No tables need to be created in the Supabase dashboard. Flyway creates the `hamm
 | `SPRING_PROFILES_ACTIVE` | none | Use `prod` on Cloud Run. |
 | `HAMMERLY_SEED_ENABLED` | `true` locally, `false` in `prod` | Enables idempotent demo users, auctions, and bids. |
 | `HAMMERLY_DEBUG_ENDPOINT_ENABLED` | `true` locally; disabled by `prod` | Enables the local `GET /api/auth/` database debug route. |
+| `HAMMERLY_AI_URL` | `http://localhost:5001` | Base URL of the internal Hammerly AI service. Core does not contact it during startup. |
+| `HAMMERLY_AI_DIAGNOSTIC_ENABLED` | `true` locally; disabled by `prod` | Enables local `GET /internal/integration/ai-health` verification. |
 | `HAMMERLY_DB_MAX_POOL_SIZE` | `5` | Hikari maximum pool size. |
 | `HAMMERLY_DB_MIN_IDLE` | `0` | Hikari minimum idle connections. |
 
@@ -66,6 +68,7 @@ When `gcloud secrets versions add` waits for standard input, paste the JDBC URL 
 ## Package layout
 
 - `config`: CORS, security, OpenAPI, and optional demo seed initialization
+- `client`: isolated HTTP clients for downstream internal services
 - `controller`: compatible HTTP routes
 - `service`: validation, business behavior, and client response mapping
 - `repository`: PostgreSQL `JdbcTemplate` SQL and row mapping

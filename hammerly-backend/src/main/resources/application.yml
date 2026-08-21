@@ -5,7 +5,7 @@ server:
 
 spring:
   application:
-    name: hammerly-backend
+    name: hammerly-core
   datasource:
     url: ${SUPABASE_DB_URL}
     driver-class-name: org.postgresql.Driver
@@ -31,6 +31,11 @@ spring:
 
 hammerly:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  ai:
+    base-url: ${HAMMERLY_AI_URL:http://localhost:5001}
+    connect-timeout: 2s
+    read-timeout: 3s
+    diagnostic-enabled: ${HAMMERLY_AI_DIAGNOSTIC_ENABLED:true}
   database:
     seed: ${HAMMERLY_SEED_ENABLED:true}
   debug-endpoint:
