@@ -23,17 +23,33 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest(properties = {
-    "hammerly.database.path=target/test-data/hammerly-test.db",
     "hammerly.database.seed=true",
     "hammerly.debug-endpoint.enabled=true",
+    "spring.datasource.hikari.data-source-properties.sslmode=disable",
     "jwt.secret=test-secret-compatible-with-node-jsonwebtoken"
 })
 @AutoConfigureMockMvc
+@Testcontainers(disabledWithoutDocker = true)
 class HammerlyApiIntegrationTest {
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+
+    @DynamicPropertySource
+    static void postgresProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+    }
+
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired DatabaseInitializer databaseInitializer;
@@ -151,6 +167,9 @@ class HammerlyApiIntegrationTest {
         mvc.perform(post("/api/auctions/watch/{id}", auctionId).header("Authorization", bearer(token)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.message").value("Item added to watchlist"));
+        mvc.perform(post("/api/auctions/watch/{id}", auctionId).header("Authorization", bearer(token)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value("Item already in watchlist"));
         mvc.perform(get("/api/auctions/is-watched/{id}", auctionId).header("Authorization", bearer(token)))
             .andExpect(status().isOk()).andExpect(jsonPath("$.isWatched").value(true));
         mvc.perform(get("/api/auctions/get-watchlist").header("Authorization", bearer(token)))

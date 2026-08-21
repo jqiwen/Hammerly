@@ -2,12 +2,15 @@ package com.hammerly.backend.util;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 public final class TimeUtils {
-    private static final DateTimeFormatter SQLITE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter LEGACY_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private TimeUtils() {
@@ -22,7 +25,7 @@ public final class TimeUtils {
         } catch (DateTimeParseException ignored) {
             LocalDateTime localDateTime;
             try {
-                localDateTime = LocalDateTime.parse(value, SQLITE);
+                localDateTime = LocalDateTime.parse(value, LEGACY_TIMESTAMP);
             } catch (DateTimeParseException second) {
                 localDateTime = LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             }
@@ -70,5 +73,10 @@ public final class TimeUtils {
 
     public static String localDate(String value) {
         return DISPLAY_DATE.format(parse(value).atZone(ZoneId.systemDefault()));
+    }
+
+    public static String readInstant(ResultSet resultSet, String column) throws SQLException {
+        OffsetDateTime value = resultSet.getObject(column, OffsetDateTime.class);
+        return value == null ? null : value.toInstant().toString();
     }
 }

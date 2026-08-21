@@ -94,6 +94,9 @@ public class AuctionService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid bid amount");
         }
         long id = parseLongOrNotFound(rawId);
+        if (!auctions.lockById(id)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Auction not found");
+        }
         Auction auction = auctions.findById(id)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Auction not found"));
         if (!"active".equals(auction.status())) {
@@ -194,9 +197,9 @@ public class AuctionService {
         String image = truthy(request.image()) ? request.image() : firstImage(request.images());
         if (!truthy(image)) image = "/images/picture.jpg";
         String description = composeDescription(request);
-        String startTime = Instant.now().toString();
+        Instant startTime = Instant.now();
         long id = auctions.insert(request.title(), request.category(), description, startPrice, image,
-            truthy(request.condition()) ? request.condition() : null, userId, startTime, endTime);
+            truthy(request.condition()) ? request.condition() : null, userId, startTime, parsedEnd);
         Map<String, Object> response = successMessage("Auction created successfully");
         response.put("data", auctions.findById(id).map(this::mapAuction).orElse(null));
         return response;

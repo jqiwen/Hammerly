@@ -1,8 +1,8 @@
 package com.hammerly.backend.repository;
 
 import com.hammerly.backend.model.User;
+import com.hammerly.backend.util.TimeUtils;
 import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,7 +13,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class UserRepository {
     private static final String PROFILE_COLUMNS =
-        "id, firstName, lastName, email, password, phone, avatarImage, createdAt";
+        "id, first_name, last_name, email, password, phone, avatar_image, created_at";
     private final JdbcTemplate jdbc;
 
     public UserRepository(JdbcTemplate jdbc) {
@@ -39,8 +39,8 @@ public class UserRepository {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbc.update(connection -> {
             PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO users (email, password, firstName, lastName, phone, avatarImage) VALUES (?, ?, ?, ?, ?, ?)",
-                Statement.RETURN_GENERATED_KEYS);
+                "INSERT INTO users (email, password, first_name, last_name, phone, avatar_image) " +
+                    "VALUES (?, ?, ?, ?, ?, ?)", new String[] {"id"});
             statement.setString(1, email);
             statement.setString(2, password);
             statement.setString(3, firstName);
@@ -53,29 +53,29 @@ public class UserRepository {
     }
 
     public void updateProfile(long id, String firstName, String lastName, String email, String phone) {
-        jdbc.update("UPDATE users SET firstName = ?, lastName = ?, email = ?, phone = ?, " +
-            "updatedAt = CURRENT_TIMESTAMP WHERE id = ?", firstName, lastName, email, phone, id);
+        jdbc.update("UPDATE users SET first_name = ?, last_name = ?, email = ?, phone = ?, " +
+            "updated_at = CURRENT_TIMESTAMP WHERE id = ?", firstName, lastName, email, phone, id);
     }
 
     public void updatePassword(long id, String encodedPassword) {
-        jdbc.update("UPDATE users SET password = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?", encodedPassword, id);
+        jdbc.update("UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", encodedPassword, id);
     }
 
     public void updateAvatar(long id, String avatarImage) {
-        jdbc.update("UPDATE users SET avatarImage = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?", avatarImage, id);
+        jdbc.update("UPDATE users SET avatar_image = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", avatarImage, id);
     }
 
     public void updateSeedUser(long id, String firstName, String lastName, String password,
                                String phone, String avatarImage) {
-        jdbc.update("UPDATE users SET firstName = ?, lastName = ?, password = ?, phone = ?, avatarImage = ?, " +
-                "updatedAt = CURRENT_TIMESTAMP WHERE id = ?",
+        jdbc.update("UPDATE users SET first_name = ?, last_name = ?, password = ?, phone = ?, avatar_image = ?, " +
+                "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             firstName, lastName, password, phone, avatarImage, id);
     }
 
     private User mapUser(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
-        return new User(rs.getLong("id"), rs.getString("firstName"), rs.getString("lastName"),
+        return new User(rs.getLong("id"), rs.getString("first_name"), rs.getString("last_name"),
             rs.getString("email"), rs.getString("password"), valueOrEmpty(rs.getString("phone")),
-            valueOrEmpty(rs.getString("avatarImage")), rs.getString("createdAt"));
+            valueOrEmpty(rs.getString("avatar_image")), TimeUtils.readInstant(rs, "created_at"));
     }
 
     private String valueOrEmpty(String value) {

@@ -1,8 +1,8 @@
 package com.hammerly.backend.repository;
 
 import com.hammerly.backend.model.PaymentMethod;
+import com.hammerly.backend.util.TimeUtils;
 import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,9 +13,9 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class PaymentMethodRepository {
     private static final String SELECT_COLUMNS = """
-        SELECT id, user_id, cardType, COALESCE(NULLIF(cardNumber, ''), lastFour) AS cardNumber,
-               expiryMonth, expiryYear, cardholderName, isDefault, billingAddress, billingCity,
-               billingProvince, billingPostalCode, billingCountry, createdAt
+        SELECT id, user_id, card_type, COALESCE(NULLIF(card_number, ''), last_four) AS card_number,
+               expiry_month, expiry_year, cardholder_name, is_default, billing_address, billing_city,
+               billing_province, billing_postal_code, billing_country, created_at
         FROM payment_methods
         """;
     private final JdbcTemplate jdbc;
@@ -25,7 +25,7 @@ public class PaymentMethodRepository {
     }
 
     public List<PaymentMethod> findByUser(long userId) {
-        return jdbc.query(SELECT_COLUMNS + " WHERE user_id = ? ORDER BY isDefault DESC, createdAt DESC",
+        return jdbc.query(SELECT_COLUMNS + " WHERE user_id = ? ORDER BY is_default DESC, created_at DESC",
             this::map, userId);
     }
 
@@ -42,10 +42,10 @@ public class PaymentMethodRepository {
         jdbc.update(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO payment_methods
-                    (user_id, cardType, cardNumber, lastFour, expiryMonth, expiryYear, cardholderName,
-                     isDefault, billingAddress, billingCity, billingProvince, billingPostalCode, billingCountry)
+                    (user_id, card_type, card_number, last_four, expiry_month, expiry_year, cardholder_name,
+                     is_default, billing_address, billing_city, billing_province, billing_postal_code, billing_country)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, Statement.RETURN_GENERATED_KEYS);
+                """, new String[] {"id"});
             statement.setLong(1, userId);
             statement.setString(2, cardType);
             statement.setString(3, cardNumber);
@@ -53,7 +53,7 @@ public class PaymentMethodRepository {
             statement.setInt(5, expiryMonth);
             statement.setInt(6, expiryYear);
             statement.setString(7, cardholderName);
-            statement.setInt(8, isDefault);
+            statement.setBoolean(8, isDefault != 0);
             statement.setString(9, billingAddress);
             statement.setString(10, billingCity);
             statement.setString(11, billingProvince);
@@ -70,11 +70,11 @@ public class PaymentMethodRepository {
     }
 
     public void clearDefault(long userId) {
-        jdbc.update("UPDATE payment_methods SET isDefault = 0 WHERE user_id = ?", userId);
+        jdbc.update("UPDATE payment_methods SET is_default = FALSE WHERE user_id = ?", userId);
     }
 
     public void setDefault(long id) {
-        jdbc.update("UPDATE payment_methods SET isDefault = 1 WHERE id = ?", id);
+        jdbc.update("UPDATE payment_methods SET is_default = TRUE WHERE id = ?", id);
     }
 
     public void delete(long id, long userId) {
@@ -82,15 +82,16 @@ public class PaymentMethodRepository {
     }
 
     public Optional<Long> newestId(long userId) {
-        return jdbc.query("SELECT id FROM payment_methods WHERE user_id = ? ORDER BY createdAt DESC LIMIT 1",
+        return jdbc.query("SELECT id FROM payment_methods WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
             (rs, row) -> rs.getLong(1), userId).stream().findFirst();
     }
 
     private PaymentMethod map(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
-        return new PaymentMethod(rs.getLong("id"), rs.getLong("user_id"), rs.getString("cardType"),
-            rs.getString("cardNumber"), rs.getInt("expiryMonth"), rs.getInt("expiryYear"),
-            rs.getString("cardholderName"), rs.getInt("isDefault"), rs.getString("billingAddress"),
-            rs.getString("billingCity"), rs.getString("billingProvince"),
-            rs.getString("billingPostalCode"), rs.getString("billingCountry"), rs.getString("createdAt"));
+        return new PaymentMethod(rs.getLong("id"), rs.getLong("user_id"), rs.getString("card_type"),
+            rs.getString("card_number"), rs.getInt("expiry_month"), rs.getInt("expiry_year"),
+            rs.getString("cardholder_name"), rs.getBoolean("is_default") ? 1 : 0,
+            rs.getString("billing_address"), rs.getString("billing_city"), rs.getString("billing_province"),
+            rs.getString("billing_postal_code"), rs.getString("billing_country"),
+            TimeUtils.readInstant(rs, "created_at"));
     }
 }

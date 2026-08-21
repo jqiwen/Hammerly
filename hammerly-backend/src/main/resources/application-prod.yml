@@ -1,3 +1,5 @@
 hammerly:
+  database:
+    seed: ${HAMMERLY_SEED_ENABLED:false}
   debug-endpoint:
     enabled: false

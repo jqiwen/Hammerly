@@ -1,9 +1,22 @@
-# Node
-hammerly-ui/node_modules/
-hammerly-backend/node_modules/
-hammerly-backend/dist/
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
-/node_modules/
+# Local database artifacts from the retired SQLite implementation
+*.db
+*.db-*
+data/
+**/data/
 
-hammerly-backend/node_modules/
+# Build output and dependencies
+target/
+**/target/
+dist/
+**/dist/
+node_modules/
+**/node_modules/
 
