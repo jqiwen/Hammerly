@@ -1,0 +1,3 @@
+hammerly:
+  debug-endpoint:
+    enabled: false

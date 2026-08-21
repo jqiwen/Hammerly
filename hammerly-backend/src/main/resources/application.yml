@@ -1,0 +1,36 @@
+server:
+  port: 5000
+  tomcat:
+    max-http-form-post-size: 20MB
+
+spring:
+  application:
+    name: hammerly-backend
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+  sql:
+    init:
+      mode: never
+
+hammerly:
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  database:
+    path: ${HAMMERLY_DATABASE_PATH:data/hammerly.db}
+    seed: ${HAMMERLY_SEED_ENABLED:true}
+  debug-endpoint:
+    enabled: ${HAMMERLY_DEBUG_ENDPOINT_ENABLED:true}
+
+jwt:
+  secret: ${JWT_SECRET:your-secret-key-change-in-production}
+  expiration-ms: ${JWT_EXPIRATION_MS:604800000}
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /api-docs
+    operations-sorter: method
