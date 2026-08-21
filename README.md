@@ -183,34 +183,6 @@ Responsibilities:
 - Background AI tasks
 - Non-blocking asynchronous workflows
 
----
-
-# Service Communication
-
-Real-time AI requests use REST + streaming
-
-
-Background workloads use Kafka
-
-
-Kafka is intentionally not placed in the real-time chat response path.
-
----
-
-# Failure Isolation
-
-AI failures do not prevent Hammerly marketplace operations from running.
-
-If Hammerly AI becomes unavailable Core returns a controlled AI-unavailable response instead of failing the entire application.
-
-LLM calls are protected using:
-
-- Timeouts
-- Circuit breakers
-- Bulkheads
-- Controlled retries
-- Rate limits
-- Graceful fallback responses
 
 ---
 
