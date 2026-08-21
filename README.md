@@ -114,34 +114,6 @@ Redis is used for:
 
 ---
 
-## Tech Stack
-
-**Frontend**  
-`React` `TypeScript` `Zustand` `Vite` `React Router` `SSE`
-
-**Core Backend**  
-`Java 21` `Spring Boot` `Spring MVC` `Spring Security` `JWT` `JdbcTemplate` `HikariCP` `Flyway`
-
-**AI Platform**  
-`Spring AI` `OpenAI` `RAG` `Embeddings` `pgvector` `Semantic Search` `LLM Streaming`
-
-**Distributed Systems**  
-`Apache Kafka` `Spring Kafka` `Redis` `Spring Data Redis` `Resilience4j` `Microservices` `Rate Limiting`
-
-**Database**  
-`PostgreSQL` `Supabase` `pgvector`
-
-**Observability & Performance**  
-`Spring Boot Actuator` `Micrometer` `Prometheus` `Grafana` `k6`
-
-**Testing**  
-`JUnit 5` `Mockito` `Spring Boot Test` `Integration Testing` `Load Testing`
-
-**Cloud & DevOps**  
-`Docker` `Docker Compose` `Kubernetes` `GKE` `Google Cloud Run` `Artifact Registry` `Secret Manager` `GitHub Pages` `GitHub Actions`
-
----
-
 # Running Locally
 
 ## Prerequisites
@@ -223,29 +195,6 @@ The AI service runs locally on:
 http://localhost:5001
 ```
 
-Health check:
-
-```text
-http://localhost:5001/health
-```
-
-Actuator health:
-
-```text
-http://localhost:5001/actuator/health
-```
-
-The AI service owns:
-
-```text
-LLM orchestration
-RAG
-Embeddings
-Semantic search
-Prompt construction
-Streaming AI responses
-```
-
 ---
 
 ## 4. Start the Async Worker
@@ -266,16 +215,6 @@ cd hammerly-worker
 
 ```bash
 ./mvnw spring-boot:run
-```
-
-The worker consumes Kafka events such as:
-
-```text
-message.created
-conversation.completed
-conversation.summary.requested
-embedding.requested
-ai.response.completed
 ```
 
 The worker is not required for normal marketplace requests or real-time AI responses.
@@ -318,26 +257,6 @@ The Core service runs locally on:
 http://localhost:5000
 ```
 
-Health check:
-
-```text
-http://localhost:5000/health
-```
-
-Hammerly Core owns:
-
-```text
-Authentication
-Users
-Profiles
-Auctions
-Bids
-Watchlists
-Payment Methods
-Transactional Business Logic
-Public REST APIs
-```
-
 Flyway automatically applies PostgreSQL schema migrations during startup.
 
 ---
@@ -366,95 +285,6 @@ http://localhost:3000
 
 ---
 
-## Local Architecture
-
-With all services running:
-
-```text
-                    React
-              localhost:3000
-                     |
-                     v
-               Hammerly Core
-              localhost:5000
-                /          \
-               /            \
-              v              v
-      Supabase PostgreSQL   Hammerly AI
-                            localhost:5001
-                              /      \
-                             /        \
-                            v          v
-                          Redis      OpenAI
-                            |
-                            v
-                         pgvector
-
-
-Core / AI
-    |
-    v
-  Kafka
-    |
-    v
-Async Worker
-```
-
-The frontend never communicates directly with Hammerly AI or OpenAI.
-
-All browser requests go through Hammerly Core.
-
----
-
-## 7. Verify the Services
-
-Core:
-
-```bash
-curl http://localhost:5000/health
-```
-
-AI:
-
-```bash
-curl http://localhost:5001/health
-```
-
-Example marketplace API:
-
-```bash
-curl http://localhost:5000/api/auctions/get-top
-```
-
-Open Hammerly in the browser:
-
-```text
-http://localhost:3000
-```
-
-Then test:
-
-- Register
-- Login
-- Browse auctions
-- Create auction
-- Place bid
-- Watchlist
-- Profile
-- FAQ
-- AI Support
-
----
-
-## 8. Stop Local Infrastructure
-
-Stop Kafka, Redis, Prometheus, and Grafana:
-
-```bash
-docker compose down
-```
-
----
 
 # Microservice Design
 
@@ -576,96 +406,6 @@ Performance techniques include:
 
 ---
 
-## Load Testing
-
-k6 is used to progressively test:
-
-```text
-100 concurrent users
-        |
-        v
-500 concurrent users
-        |
-        v
-1,000+ concurrent users
-```
-
-Measured metrics include:
-
-- Requests per second
-- P50 latency
-- P95 latency
-- P99 latency
-- Error rate
-- CPU usage
-- Memory usage
-- Redis hit rate
-- Kafka consumer lag
-- Kubernetes replica count
-
-High-volume AI load tests use a mock LLM provider instead of the real OpenAI API to avoid external provider rate limits and unnecessary API costs.
-
-Real OpenAI requests are used only for integration and end-to-end testing.
-
----
-
-# Docker
-
-Each service is independently containerized.
-
-```bash
-docker build -t hammerly-core ./hammerly-backend
-docker build -t hammerly-ai ./hammerly-ai
-docker build -t hammerly-worker ./hammerly-worker
-```
-
-Docker Compose is used for local infrastructure and distributed integration testing.
-
----
-
-# Kubernetes
-
-Hammerly services can run independently in Kubernetes.
-
-```text
-GKE
- |
- +---- hammerly-core
- |      +---- pod
- |      +---- pod
- |      +---- pod
- |
- +---- hammerly-ai
- |      +---- pod
- |      +---- pod
- |
- +---- hammerly-worker
- |      +---- pod
- |      +---- pod
- |
- +---- Prometheus
- |
- +---- Grafana
-```
-
-Horizontal Pod Autoscaling allows the AI and Core services to scale independently.
-
-Example:
-
-```text
-2 AI pods
-    |
-traffic increases
-    |
-    v
-5 AI pods
-    |
-    v
-10 AI pods
-```
-
----
-
 # Deployment
 
 ## Frontend
@@ -707,34 +447,6 @@ SSL
 Flyway
 ```
 
----
-
-# Production Architecture
-
-```text
-https://hammerly.jqiwen.com
-            |
-            v
-       React Frontend
-            |
-            v
-       Hammerly Core
-         /       \
-        /         \
-       v           v
-PostgreSQL     Hammerly AI
-                  |
-           +------+------+
-           |             |
-           v             v
-         Redis        RAG / LLM
-           |
-           v
-         Kafka
-           |
-           v
-       AI Workers
-```
 
 ---
 
@@ -757,32 +469,3 @@ Hammerly uses several security boundaries:
 
 ---
 
-# Engineering Highlights
-
-Hammerly explores several production-oriented software engineering concepts:
-
-- Full-stack React + Spring Boot application design
-- Spring Boot microservice architecture
-- Service-to-service REST communication
-- Generative AI integration with Spring AI
-- Streaming LLM responses
-- Retrieval-Augmented Generation
-- PostgreSQL vector search with pgvector
-- Redis distributed caching
-- Distributed rate limiting
-- Kafka event-driven processing
-- Asynchronous workers
-- Fault isolation
-- Circuit breakers and bulkheads
-- Docker containerization
-- Kubernetes orchestration
-- Horizontal autoscaling
-- Prometheus monitoring
-- Grafana dashboards
-- k6 high-concurrency load testing
-- P50 / P95 / P99 latency analysis
-- CI/CD with GitHub Actions
-- Cloud deployment with Google Cloud
-- Secure secret management
-
----
