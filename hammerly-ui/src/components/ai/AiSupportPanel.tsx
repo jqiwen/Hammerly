@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import AiQuestionInput from './AiQuestionInput';
-import { AiLoadingMessage, AiMessage } from './AiMessage';
+import { AiMessage } from './AiMessage';
 import QuickQuestions from './QuickQuestions';
 import type { AiChatMessage } from './useAiSupportConversation';
 
@@ -13,6 +13,7 @@ type AiSupportPanelProps = {
   onQuickQuestion: (question: string) => void;
   onClose: () => void;
   isLoading: boolean;
+  streamingMessageId: string | null;
   inputError: string | null;
   onClearInputError: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -27,20 +28,27 @@ export default function AiSupportPanel({
   onQuickQuestion,
   onClose,
   isLoading,
+  streamingMessageId,
   inputError,
   onClearInputError,
   inputRef,
   quickQuestions,
 }: AiSupportPanelProps) {
   const messageListRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const previousMessageCountRef = useRef(messages.length);
   const hasUserMessage = messages.some((message) => message.role === 'user');
 
   useEffect(() => {
     const list = messageListRef.current;
-    if (list) {
-      list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' });
+    if (messages.length > previousMessageCountRef.current) {
+      shouldAutoScrollRef.current = true;
+      previousMessageCountRef.current = messages.length;
     }
-  }, [messages, isLoading]);
+    if (list && shouldAutoScrollRef.current) {
+      list.scrollTo({ top: list.scrollHeight });
+    }
+  }, [messages]);
 
   return (
     <section
@@ -71,12 +79,21 @@ export default function AiSupportPanel({
 
       <div
         ref={messageListRef}
+        onScroll={(event) => {
+          const list = event.currentTarget;
+          const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+          shouldAutoScrollRef.current = distanceFromBottom < 96;
+        }}
         className="flex-1 space-y-3 overflow-y-auto bg-gray-50 px-4 py-4"
         aria-live="polite"
         aria-busy={isLoading}
       >
         {messages.map((message) => (
-          <AiMessage key={message.id} message={message} />
+          <AiMessage
+            key={message.id}
+            message={message}
+            isStreaming={message.id === streamingMessageId}
+          />
         ))}
         {!hasUserMessage && (
           <div className="pt-1">
@@ -91,7 +108,6 @@ export default function AiSupportPanel({
             />
           </div>
         )}
-        {isLoading && <AiLoadingMessage />}
       </div>
 
       <div className="border-t border-gray-200 bg-white p-3">

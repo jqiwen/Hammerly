@@ -3,7 +3,7 @@ import { ChevronDown, HelpCircle, Sparkles } from 'lucide-react';
 import Header from '@/components/feature/Header';
 import Footer from '@/components/feature/Footer';
 import AiQuestionInput from '@/components/ai/AiQuestionInput';
-import { AiLoadingMessage, AiMessage } from '@/components/ai/AiMessage';
+import { AiMessage } from '@/components/ai/AiMessage';
 import { useAiSupportConversation } from '@/components/ai/useAiSupportConversation';
 import { allFaqItems, faqCategories, popularFaqIds } from './faqData';
 
@@ -14,6 +14,7 @@ export default function FAQ() {
   const {
     messages,
     isLoading,
+    streamingMessageId,
     inputError,
     askQuestion,
     clearInputError,
@@ -111,13 +112,16 @@ export default function FAQ() {
                 onClearError={clearInputError}
               />
 
-              {(latestAssistantMessage || isLoading) && (
+              {latestAssistantMessage && (
                 <div
                   className="mt-6 max-w-3xl rounded-2xl border border-gray-200 bg-gray-50 p-4"
                   aria-live="polite"
                   aria-busy={isLoading}
                 >
-                  {isLoading ? <AiLoadingMessage /> : <AiMessage message={latestAssistantMessage!} />}
+                  <AiMessage
+                    message={latestAssistantMessage}
+                    isStreaming={latestAssistantMessage.id === streamingMessageId}
+                  />
                 </div>
               )}
             </div>

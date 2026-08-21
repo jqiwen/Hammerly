@@ -3,9 +3,10 @@ import type { AiChatMessage } from './useAiSupportConversation';
 
 type AiMessageProps = {
   message: AiChatMessage;
+  isStreaming?: boolean;
 };
 
-export function AiMessage({ message }: AiMessageProps) {
+export function AiMessage({ message, isStreaming = false }: AiMessageProps) {
   const isAssistant = message.role === 'assistant';
 
   return (
@@ -26,29 +27,24 @@ export function AiMessage({ message }: AiMessageProps) {
             Hammerly AI
           </div>
         )}
-        <p className="whitespace-pre-wrap">{message.content}</p>
-      </div>
-    </div>
-  );
-}
-
-export function AiLoadingMessage() {
-  return (
-    <div className="flex justify-start" aria-label="Hammerly AI is responding">
-      <div className="rounded-2xl border border-[#8B2635]/10 bg-[#8B2635]/5 px-4 py-3 shadow-sm">
-        <div className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.12em] text-[#8B2635]">
-          <Sparkles size={13} aria-hidden="true" />
-          Hammerly AI
-        </div>
-        <div className="flex items-center gap-1" aria-hidden="true">
-          {[0, 1, 2].map((dot) => (
-            <span
-              key={dot}
-              className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8B2635]"
-              style={{ animationDelay: `${dot * 140}ms` }}
-            />
-          ))}
-        </div>
+        {message.content ? (
+          <p className="whitespace-pre-wrap">
+            {message.content}
+            {isStreaming && (
+              <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-[#8B2635] align-middle" />
+            )}
+          </p>
+        ) : (
+          <div className="flex h-6 items-center gap-1" aria-label="Hammerly AI is responding">
+            {[0, 1, 2].map((dot) => (
+              <span
+                key={dot}
+                className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#8B2635]"
+                style={{ animationDelay: `${dot * 140}ms` }}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

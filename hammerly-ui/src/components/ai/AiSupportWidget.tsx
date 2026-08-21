@@ -28,6 +28,7 @@ export default function AiSupportWidget() {
   const {
     messages,
     isLoading,
+    streamingMessageId,
     inputError,
     askQuestion,
     clearInputError,
@@ -78,6 +79,7 @@ export default function AiSupportWidget() {
           onQuickQuestion={(quickQuestion) => void submitQuestion(quickQuestion)}
           onClose={() => setIsOpen(false)}
           isLoading={isLoading}
+          streamingMessageId={streamingMessageId}
           inputError={inputError}
           onClearInputError={clearInputError}
           inputRef={inputRef}

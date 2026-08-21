@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record AiPlatformProperties(
     String baseUrl,
     Duration connectTimeout,
-    Duration readTimeout
+    Duration readTimeout,
+    Duration streamTimeout
 ) {
 }

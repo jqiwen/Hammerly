@@ -1,5 +1,6 @@
 import { forwardRef, type KeyboardEvent } from 'react';
 import { LoaderCircle, Send } from 'lucide-react';
+import { AI_SUPPORT_MAX_MESSAGE_LENGTH } from '@/api/aiSupport';
 
 type AiQuestionInputProps = {
   value: string;
@@ -59,6 +60,7 @@ const AiQuestionInput = forwardRef<HTMLTextAreaElement, AiQuestionInputProps>(
             }}
             onKeyDown={handleKeyDown}
             rows={compact ? 2 : 2}
+            maxLength={AI_SUPPORT_MAX_MESSAGE_LENGTH}
             disabled={isLoading}
             aria-invalid={Boolean(error)}
             aria-describedby={error ? `${inputId}-error` : undefined}
