@@ -456,51 +456,6 @@ docker compose down
 
 ---
 
-# System Architecture
-
-Hammerly follows a microservice architecture that separates transactional marketplace workloads from AI workloads.
-
-```text
-                               Internet
-                                  |
-                                  v
-                        +-------------------+
-                        |   React Frontend  |
-                        +---------+---------+
-                                  |
-                                  | HTTPS / SSE
-                                  v
-                        +-------------------+
-                        |   Hammerly Core   |
-                        |    Spring Boot    |
-                        +----+---------+----+
-                             |         |
-                             |         |
-                  SQL        |         | REST
-                             |         |
-                             v         v
-                    +-------------+   +------------------+
-                    | PostgreSQL  |   |  Hammerly AI     |
-                    | + pgvector  |   |  Spring Boot     |
-                    +-------------+   |  Spring AI       |
-                                      +----+---------+---+
-                                           |         |
-                                           |         |
-                                           v         v
-                                        Redis      LLM API
-                                           |
-                                           |
-                     +---------------------+
-                     |
-                     v
-                 Apache Kafka
-                     |
-                     v
-               Async Workers
-```
-
----
-
 # Microservice Design
 
 ## Hammerly Core
@@ -574,35 +529,11 @@ Responsibilities:
 
 # Service Communication
 
-Real-time AI requests use REST + streaming:
+Real-time AI requests use REST + streaming
 
-```text
-React
-  |
-  v
-Core
-  |
-  v
-AI Service
-  |
-  v
-LLM
-```
 
-Background workloads use Kafka:
+Background workloads use Kafka
 
-```text
-Core / AI
-    |
-    v
-  Kafka
-    |
-    +------> Analytics Worker
-    |
-    +------> Summary Worker
-    |
-    +------> Embedding Worker
-```
 
 Kafka is intentionally not placed in the real-time chat response path.
 
@@ -612,20 +543,7 @@ Kafka is intentionally not placed in the real-time chat response path.
 
 AI failures do not prevent Hammerly marketplace operations from running.
 
-If Hammerly AI becomes unavailable:
-
-```text
-AI Service       ❌
-
-Authentication   ✅
-Auction Listing  ✅
-Auction Creation ✅
-Bidding          ✅
-Watchlists       ✅
-Profiles         ✅
-```
-
-Core returns a controlled AI-unavailable response instead of failing the entire application.
+If Hammerly AI becomes unavailable Core returns a controlled AI-unavailable response instead of failing the entire application.
 
 LLM calls are protected using:
 
@@ -635,55 +553,6 @@ LLM calls are protected using:
 - Controlled retries
 - Rate limits
 - Graceful fallback responses
-
----
-
-# Observability
-
-Hammerly uses:
-
-```text
-Spring Boot Actuator
-        |
-        v
-Micrometer
-        |
-        v
-Prometheus
-        |
-        v
-Grafana
-```
-
-Metrics include:
-
-- Requests per second
-- HTTP P50 latency
-- HTTP P95 latency
-- HTTP P99 latency
-- Error rate
-- JVM memory
-- CPU
-- Garbage collection
-- Database connection pool usage
-- AI request latency
-- Time to first token
-- LLM provider errors
-- RAG retrieval latency
-- Redis cache hit rate
-- Kafka consumer lag
-- Active AI conversations
-
-Custom metrics include:
-
-```text
-hammerly_ai_requests_total
-hammerly_ai_request_duration_seconds
-hammerly_llm_errors_total
-hammerly_rag_search_duration_seconds
-hammerly_cache_hits_total
-hammerly_active_conversations
-```
 
 ---
 
@@ -840,22 +709,6 @@ Flyway
 
 ---
 
-## Secrets
-
-Sensitive production configuration is stored using Google Secret Manager.
-
-Examples:
-
-```text
-SUPABASE_DB_URL
-JWT_SECRET
-OPENAI_API_KEY
-```
-
-Secrets are never committed to GitHub or exposed to the React frontend.
-
----
-
 # Production Architecture
 
 ```text
@@ -902,23 +755,6 @@ Hammerly uses several security boundaries:
 - No API keys in React
 - No database credentials in frontend code
 
-The frontend never calls OpenAI directly.
-
-```text
-Correct:
-
-Browser
-   |
-   v
-Core
-   |
-   v
-AI
-   |
-   v
-OpenAI
-```
-
 ---
 
 # Engineering Highlights
@@ -950,46 +786,3 @@ Hammerly explores several production-oriented software engineering concepts:
 - Secure secret management
 
 ---
-
-# Repository Structure
-
-```text
-Hammerly/
-|
-├── hammerly-ui/
-│   └── React + TypeScript frontend
-│
-├── hammerly-backend/
-│   └── Hammerly Core Spring Boot service
-│
-├── hammerly-ai/
-│   └── Hammerly AI Spring Boot service
-│
-├── hammerly-worker/
-│   └── Kafka background worker
-│
-├── infrastructure/
-│   ├── docker/
-│   ├── kubernetes/
-│   └── monitoring/
-│
-├── load-tests/
-│   └── k6/
-│
-├── docs/
-│   ├── images/
-│   ├── architecture.md
-│   ├── microservices.md
-│   ├── ai-rag.md
-│   └── performance.md
-│
-├── docker-compose.yml
-│
-└── README.md
-```
-
----
-
-## License
-
-This project was developed for educational, portfolio, and software engineering demonstration purposes.
