@@ -3,7 +3,11 @@
 Hammerly is an auction application with a React/TypeScript frontend, a Spring Boot backend, and Supabase PostgreSQL persistence.
 
 ```text
-Browser -> React / Vite -> Spring Boot REST API -> JdbcTemplate -> Supabase PostgreSQL
+Browser
+  -> React / Vite static site (GitHub Pages: https://hammerly.jqiwen.com)
+  -> Spring Boot REST API (Google Cloud Run)
+  -> JdbcTemplate + Flyway
+  -> Supabase PostgreSQL
 ```
 
 The frontend continues to use the existing Spring Boot API and JWT authentication. It does not receive database credentials and does not connect to Supabase directly.
@@ -41,6 +45,16 @@ npm run dev
 ```
 
 The UI runs at `http://localhost:3000`; its existing Vite proxy continues to send `/api/*` requests to Spring Boot on port 5000.
+
+Copy `hammerly-ui/.env.example` to `hammerly-ui/.env.local` when a local override is needed. The default development value is `/api`, which uses the Vite proxy rather than hard-coding a production host.
+
+## Production frontend deployment
+
+The frontend deploys from `main` with `.github/workflows/deploy-frontend.yml`. GitHub Actions installs the locked npm dependencies, type-checks the project, builds `hammerly-ui/out`, uploads that directory as the Pages artifact, and deploys it to GitHub Pages. Generated `out` files are not committed.
+
+The repository Actions variable `HAMMERLY_API_URL` supplies `VITE_API_URL` at build time. Its value must be the Cloud Run origin followed by `/api`; frontend API modules append endpoint paths such as `/auth/login` and `/auctions/get-top`.
+
+The production custom domain is `hammerly.jqiwen.com`. `hammerly-ui/public/CNAME` declares it in the artifact, and the `404.html` fallback restores deep BrowserRouter routes after GitHub Pages handles a direct request.
 
 ## Run backend tests and build
 

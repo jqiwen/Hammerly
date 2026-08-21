@@ -14,7 +14,7 @@
     <meta property="og:title" content="Hammerly - Premium Auction Platform" />
     <meta property="og:description" content="Bid on curated luxury items from verified sellers. Join the most trusted auction community." />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://hammerly.com" />
+    <meta property="og:url" content="https://hammerly.jqiwen.com" />
     
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -22,7 +22,7 @@
     <meta name="twitter:description" content="Bid on curated luxury items from verified sellers." />
     
     <!-- Canonical URL -->
-    <link rel="canonical" href="https://hammerly.com" />
+    <link rel="canonical" href="https://hammerly.jqiwen.com" />
     
     <!-- Last Modified -->
     <meta name="last-modified" content="2025-01-27" />
@@ -45,6 +45,20 @@
     </style>
   </head>
   <body>
+    <script>
+      (() => {
+        const redirectKey = "hammerly:spa-redirect";
+        const redirectUrl = sessionStorage.getItem(redirectKey);
+
+        if (redirectUrl) {
+          sessionStorage.removeItem(redirectKey);
+          const url = new URL(redirectUrl);
+          if (url.origin === window.location.origin) {
+            window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+          }
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
