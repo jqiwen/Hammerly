@@ -84,6 +84,33 @@ The system is designed to explore production-oriented backend engineering concep
 
 ---
 
+## 🔗 Tech Stack
+
+**Frontend**  
+`React` `TypeScript` `Zustand` `Vite` `SSE`
+
+**Core Backend**  
+`Java 21` `Spring Boot` `Spring Security` `JWT` `JdbcTemplate` `Flyway`
+
+**AI Platform**  
+`Spring AI` `OpenAI` `RAG` `Embeddings` `pgvector` `Semantic Search`
+
+**Distributed Systems**  
+`Apache Kafka` `Redis` `Resilience4j` `Microservices` `Rate Limiting`
+
+**Database**  
+`PostgreSQL` `Supabase` `pgvector`
+
+**Observability & Performance**  
+`Prometheus` `Grafana` `Micrometer` `Spring Actuator` `k6`
+
+**Cloud & DevOps**  
+`Docker` `Kubernetes` `GKE` `Google Cloud Run` `GitHub Pages` `GitHub Actions` `Artifact Registry` `Secret Manager`
+
+---
+
+
+
 ## System Architecture
 
 ```text
