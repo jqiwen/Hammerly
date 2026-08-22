@@ -129,12 +129,27 @@ The Kafka worker is different from the request-driven services. [`deploy-worker.
 
 Complete one-time API, Artifact Registry, service-account, Workload Identity Federation, Secret Manager, GitHub variable, rollout-order, and branch-protection setup in [`docs/deployment/gcp.md`](docs/deployment/gcp.md). No long-lived GCP JSON key is required.
 
+### Production deployment
+
+The live environment uses project `hammerly-506214` in `us-west1`:
+
+```text
+https://hammerly.jqiwen.com (GitHub Pages)
+  → hammerly-backend (Cloud Run)
+    → hammerly-ai (Cloud Run)
+      ├── OpenAI (key from Secret Manager)
+      └── hammerly-redis (Memorystore Basic, private default VPC)
+```
+
+AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` network and `us-west1` `default` subnet. Redis AUTH is stored in Secret Manager; its host and port are non-secret GitHub variables. Production Kafka remains disabled, so broker or worker availability cannot block real-time chat. The worker image is still built and published for a future managed Kafka/continuous-runtime deployment.
+
 ### Local development versus production
 
 | Concern | Local development | Production |
 | --- | --- | --- |
 | PostgreSQL | Developer Supabase URL or test container | Secret Manager `SUPABASE_DB_URL` |
-| Redis/Kafka | Root Docker Compose on localhost | Separately provisioned managed/reachable services |
+| Redis | Docker Compose on `localhost:6379` | Memorystore `hammerly-redis` through Direct VPC egress |
+| Kafka | Docker Compose on `localhost:9092` | Disabled until a managed broker and continuous worker runtime are selected |
 | OpenAI | Ignored local file or environment variable | Secret Manager `OPENAI_API_KEY` |
 | Core-to-AI trust | Token optional on localhost | Secret Manager shared internal token |
 | GCP authentication | Not required | GitHub OIDC/WIF, no service-account key file |

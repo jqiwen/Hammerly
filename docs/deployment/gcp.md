@@ -1,6 +1,6 @@
 # Hammerly Google Cloud deployment setup
 
-The repository contains prepared deployment workflows, but it does not contain a Google Cloud project, managed Redis, production Kafka broker, or credentials. Complete this setup once before setting `GCP_DEPLOYMENTS_ENABLED=true`.
+The deployment workflows target the existing `hammerly-506214` project in `us-west1`. The live resource names are `hammerly-backend`, `hammerly-ai`, Artifact Registry repository `hammerly`, and Memorystore instance `hammerly-redis`. Production Kafka and a continuous worker runtime are intentionally not provisioned.
 
 Production secret values stay in Google Secret Manager. GitHub stores only non-secret resource identifiers and secret **names**. GitHub authenticates to Google Cloud with short-lived OIDC credentials through Workload Identity Federation; do not create or upload a service-account JSON key.
 
@@ -164,7 +164,12 @@ done
 
 ## 6. Configure production Redis before AI deployment
 
-Provision a production Redis endpoint separately. Do not deploy the development Compose container. Ensure Cloud Run can route to the endpoint; private Memorystore normally requires appropriate VPC egress configuration that is specific to your project and therefore is not created by these workflows.
+Production uses a Basic 1 GiB Memorystore instance named `hammerly-redis` with AUTH on the `default` VPC. AI connects through Cloud Run Direct VPC egress; no continuously billed Serverless VPC Access connector is needed. The workflow requires these additional non-secret variables:
+
+```text
+AI_VPC_NETWORK=default
+AI_VPC_SUBNET=default
+```
 
 Record only these non-secret connection settings in GitHub variables:
 
@@ -172,6 +177,8 @@ Record only these non-secret connection settings in GitHub variables:
 AI_REDIS_HOST
 AI_REDIS_PORT
 AI_REDIS_SSL
+AI_VPC_NETWORK
+AI_VPC_SUBNET
 ```
 
 The password remains in `hammerly-redis-password` in Secret Manager.
@@ -188,7 +195,7 @@ GCP_WORKLOAD_IDENTITY_PROVIDER
 GCP_DEPLOY_SERVICE_ACCOUNT
 GCP_ARTIFACT_REPOSITORY=hammerly
 
-CORE_CLOUD_RUN_SERVICE=hammerly-core
+CORE_CLOUD_RUN_SERVICE=hammerly-backend
 CORE_RUNTIME_SERVICE_ACCOUNT
 CORE_DB_SECRET=hammerly-supabase-db-url
 CORE_JWT_SECRET=hammerly-jwt-secret
@@ -201,6 +208,8 @@ AI_INTERNAL_TOKEN_SECRET=hammerly-ai-internal-token
 AI_REDIS_HOST
 AI_REDIS_PORT
 AI_REDIS_SSL
+AI_VPC_NETWORK=default
+AI_VPC_SUBNET=default
 
 HAMMERLY_FRONTEND_URL=https://hammerly.jqiwen.com
 HAMMERLY_AI_URL

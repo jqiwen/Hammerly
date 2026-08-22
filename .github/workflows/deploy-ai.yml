@@ -95,6 +95,7 @@ jobs:
         --vpc-egress=private-ranges-only
       environment-variables: |-
         SPRING_PROFILES_ACTIVE=prod
+        SPRING_AI_OPENAI_SDK_CHAT_OPTIONS_REASONING_EFFORT=low
         REDIS_HOST=${{ vars.AI_REDIS_HOST }}
         REDIS_PORT=${{ vars.AI_REDIS_PORT }}
         REDIS_SSL=${{ vars.AI_REDIS_SSL }}
