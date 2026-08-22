@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/image/hammerly-poster.png" alt="Hammerly Banner" width="100%" />
+  <img src="docs/image/hammerly-banner.png" alt="Hammerly Banner" width="100%" />
 </p>
 
 # Hammerly — Auction Platform with AI Support
@@ -8,7 +8,122 @@ Hammerly is a React and Spring Boot auction application with an isolated Spring 
 
 Live frontend: https://hammerly.jqiwen.com
 
+<<<<<<< HEAD
 ## Implemented architecture
+=======
+
+### 🌐 [View Hammerly →](https://hammerly.jqiwen.com)
+
+---
+
+## Overview
+
+Hammerly is a full-stack auction platform that allows users to create listings, place bids, manage watchlists, and interact with an AI-powered customer support assistant.
+
+The system separates transactional marketplace workloads from AI workloads using independent Spring Boot microservices.
+
+- **Frontend:** React + TypeScript application
+- **Core Service:** Spring Boot service for users, auctions, bids, authentication, and business logic
+- **AI Service:** Spring Boot + Spring AI service for LLM orchestration, RAG, embeddings, and semantic search
+- **Async Worker:** Kafka consumer service for background AI and event-processing workloads
+- **Database:** Supabase PostgreSQL + pgvector
+- **Cache:** Redis
+- **Messaging:** Apache Kafka
+- **Observability:** Prometheus + Grafana
+- **Infrastructure:** Docker + Kubernetes + Google Cloud
+- **Performance Testing:** k6
+
+The browser communicates only with the Hammerly Core service. AI services remain behind the Core service boundary.
+
+---
+
+## Features
+
+### Online Auction Platform
+
+- User registration and login
+- JWT-based authentication
+- Create and manage auction listings
+- Browse active auctions
+- Place and track bids
+- Watchlist management
+- User profile management
+- Payment method management
+- PostgreSQL persistence
+- Flyway database migrations
+- Role and authorization checks through Spring Security
+
+### AI Customer Support
+
+- Floating AI Support assistant
+- AI-powered FAQ interface
+- Streaming LLM responses
+- Multi-turn conversation context
+- Hammerly-specific system prompts
+- Retrieval-Augmented Generation
+- Semantic search
+- Vector embeddings
+- Source-grounded responses
+- Graceful AI provider failure handling
+
+### RAG Knowledge Base
+
+Hammerly AI retrieves platform-specific information before generating responses.
+
+The knowledge base contains:
+
+- Auction rules
+- Bidding instructions
+- Seller guides
+- Account help
+- Watchlist information
+- Platform FAQs
+- Customer support documentation
+
+
+### Distributed Processing
+
+- Kafka event producers and consumers
+- Asynchronous conversation processing
+- AI response completion events
+- Background conversation summaries
+- Knowledge-base embedding jobs
+- Analytics event processing
+- Independent worker scaling
+
+### Redis
+
+Redis is used for:
+
+- Distributed caching
+- AI response caching
+- RAG retrieval caching
+- Conversation state
+- Distributed rate limiting
+- Shared state across multiple service instances
+
+### High-Concurrency Design
+
+- Stateless Core and AI services
+- Independent service scaling
+- Redis-backed shared state
+- Kafka-backed asynchronous workloads
+- Bounded LLM concurrency
+- Explicit request timeouts
+- Circuit breakers
+- Bulkhead isolation
+- Rate limiting
+- Graceful degradation
+- Kubernetes horizontal autoscaling
+
+---
+
+# Microservice Design
+
+## Hammerly Core
+
+Directory:
+>>>>>>> e713cbf6c393665e383fee92684edb68e212be11
 
 ```text
 React
