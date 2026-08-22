@@ -3,6 +3,7 @@ package com.hammerly.ai.service;
 import com.hammerly.ai.cache.AiCacheKeyFactory;
 import com.hammerly.ai.cache.AiResponseCache;
 import com.hammerly.ai.conversation.ConversationHistory;
+import com.hammerly.ai.conversation.ConversationAppendResult;
 import com.hammerly.ai.conversation.ConversationMessage;
 import com.hammerly.ai.conversation.ConversationStore;
 import com.hammerly.ai.dto.ChatMessage;
@@ -10,6 +11,9 @@ import com.hammerly.ai.dto.ChatRequest;
 import com.hammerly.ai.dto.ChatRole;
 import com.hammerly.ai.exception.AiProviderUnavailableException;
 import com.hammerly.ai.exception.AiRateLimitExceededException;
+import com.hammerly.ai.event.AiEventPublisher;
+import com.hammerly.ai.event.SuccessfulAiTurn;
+import com.hammerly.ai.event.SummaryMessage;
 import com.hammerly.ai.observability.AiMetrics;
 import com.hammerly.ai.ratelimit.AiRateLimiter;
 import com.hammerly.ai.ratelimit.RateLimitDecision;
@@ -18,6 +22,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,17 +41,20 @@ public class AiChatService {
     private final AiCacheKeyFactory cacheKeyFactory;
     private final AiRateLimiter rateLimiter;
     private final AiMetrics metrics;
+    private final AiEventPublisher eventPublisher;
     private final Clock clock;
 
     public AiChatService(AiModelClient modelClient, ConversationStore conversationStore,
                          AiResponseCache responseCache, AiCacheKeyFactory cacheKeyFactory,
-                         AiRateLimiter rateLimiter, AiMetrics metrics, Clock clock) {
+                         AiRateLimiter rateLimiter, AiMetrics metrics,
+                         AiEventPublisher eventPublisher, Clock clock) {
         this.modelClient = modelClient;
         this.conversationStore = conversationStore;
         this.responseCache = responseCache;
         this.cacheKeyFactory = cacheKeyFactory;
         this.rateLimiter = rateLimiter;
         this.metrics = metrics;
+        this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
 
@@ -57,7 +66,8 @@ public class AiChatService {
         if (cached.isPresent()) {
             String answer = cached.orElseThrow();
             prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
-            appendExchange(userId, request.conversationId(), request.message(), answer);
+            appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
+                .ifPresent(this::publishEventsSafely);
             metrics.requestLatency("cache_hit", startedAt);
             log.info("AI chat cache hit user={} conversation={}", userId, request.conversationId());
             return new AiChatResult(answer, rateLimit);
@@ -71,7 +81,8 @@ public class AiChatService {
                 throw new AiProviderUnavailableException("AI provider returned an empty response.");
             }
             responseCache.put(prepared.cacheKey(), answer);
-            appendExchange(userId, request.conversationId(), request.message(), answer);
+            appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
+                .ifPresent(this::publishEventsSafely);
             metrics.requestLatency("llm_request", startedAt);
             log.info("AI chat completed durationMs={}", elapsedMillis(startedAt));
             return new AiChatResult(answer, rateLimit);
@@ -95,15 +106,25 @@ public class AiChatService {
         if (cached.isPresent()) {
             String answer = cached.orElseThrow();
             prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
-            appendExchange(userId, request.conversationId(), request.message(), answer);
-            metrics.requestLatency("cache_hit", startedAt);
             log.info("AI stream cache hit user={} conversation={}", userId, request.conversationId());
-            return new AiStreamResult(Flux.just(answer), rateLimit);
+            AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
+            Flux<String> cachedStream = Flux.just(answer)
+                .doOnComplete(() -> appendExchange(userId, request.conversationId(),
+                    request.message(), answer, prepared).ifPresent(completedTurn::set))
+                .doFinally(signal -> {
+                    metrics.requestLatency(
+                        signal == SignalType.ON_COMPLETE ? "cache_hit" : "llm_error", startedAt);
+                    if (signal == SignalType.ON_COMPLETE) {
+                        Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
+                    }
+                });
+            return new AiStreamResult(cachedStream, rateLimit);
         }
 
         log.info("AI stream cache miss user={} conversation={} contextMessages={}",
             userId, request.conversationId(), prepared.context().size());
         StringBuilder completedResponse = new StringBuilder();
+        AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
         final Flux<String> chunks;
         try {
             chunks = modelClient.stream(prepared.context(), request.message());
@@ -121,14 +142,20 @@ public class AiChatService {
                 String answer = completedResponse.toString();
                 if (StringUtils.hasText(answer)) {
                     responseCache.put(prepared.cacheKey(), answer);
-                    appendExchange(userId, request.conversationId(), request.message(), answer);
+                    appendExchange(userId, request.conversationId(), request.message(), answer,
+                        prepared).ifPresent(completedTurn::set);
                 }
                 log.info("AI stream completed durationMs={}", elapsedMillis(startedAt));
             })
             .doOnError(exception -> log.warn("AI stream failed durationMs={} errorType={}",
                 elapsedMillis(startedAt), rootCauseName(exception)))
-            .doFinally(signal -> metrics.requestLatency(
-                signal == SignalType.ON_COMPLETE ? "llm_request" : "llm_error", startedAt))
+            .doFinally(signal -> {
+                metrics.requestLatency(
+                    signal == SignalType.ON_COMPLETE ? "llm_request" : "llm_error", startedAt);
+                if (signal == SignalType.ON_COMPLETE) {
+                    Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
+                }
+            })
             .onErrorMap(exception -> exception instanceof AiProviderUnavailableException
                 ? exception
                 : new AiProviderUnavailableException("AI provider stream was interrupted.", exception));
@@ -145,7 +172,8 @@ public class AiChatService {
 
     private PreparedRequest prepare(String userId, ChatRequest request) {
         ConversationHistory stored = conversationStore.getRecent(userId, request.conversationId());
-        List<ChatMessage> context = stored.messages().stream()
+        List<ConversationMessage> snapshot = stored.messages();
+        List<ChatMessage> context = snapshot.stream()
             .map(message -> new ChatMessage(message.role(), message.content()))
             .toList();
 
@@ -157,14 +185,18 @@ public class AiChatService {
                     .map(message -> new ConversationMessage(
                         message.role(), message.content(), timestamp))
                     .toList();
-                conversationStore.append(userId, request.conversationId(), imported);
+                ConversationAppendResult importResult = conversationStore.append(
+                    userId, request.conversationId(), imported);
+                if (importResult != null && importResult.successful()) {
+                    snapshot = imported;
+                }
             }
         }
 
         String cacheKey = cacheKeyFactory.create(userId, request.conversationId(),
             request.message(), context);
         Optional<String> retryCacheKey = retryCacheKey(userId, request, context);
-        return new PreparedRequest(context, cacheKey, retryCacheKey);
+        return new PreparedRequest(context, snapshot, cacheKey, retryCacheKey);
     }
 
     private Optional<String> findCached(PreparedRequest prepared) {
@@ -197,12 +229,41 @@ public class AiChatService {
         return value.strip().replaceAll("\\s+", " ");
     }
 
-    private void appendExchange(String userId, String conversationId, String question, String answer) {
+    private Optional<SuccessfulAiTurn> appendExchange(String userId, String conversationId,
+                                                       String question, String answer,
+                                                       PreparedRequest prepared) {
         Instant timestamp = clock.instant();
-        conversationStore.append(userId, conversationId, List.of(
+        ConversationAppendResult result = conversationStore.append(userId, conversationId, List.of(
             new ConversationMessage(ChatRole.USER, question, timestamp),
             new ConversationMessage(ChatRole.ASSISTANT, answer, timestamp)
         ));
+        if (result == null || !result.successful()) {
+            return Optional.empty();
+        }
+
+        List<SummaryMessage> snapshot = new ArrayList<>();
+        for (ConversationMessage message : prepared.conversationSnapshot()) {
+            snapshot.add(new SummaryMessage(
+                message.role(), message.content(), message.timestamp()));
+        }
+        snapshot.add(new SummaryMessage(ChatRole.USER, question, timestamp));
+        snapshot.add(new SummaryMessage(ChatRole.ASSISTANT, answer, timestamp));
+        if (snapshot.size() > result.messageCount()) {
+            snapshot = new ArrayList<>(snapshot.subList(
+                snapshot.size() - result.messageCount(), snapshot.size()));
+        }
+        return Optional.of(new SuccessfulAiTurn(userId, conversationId, question, answer,
+            timestamp, result.messageCount(), snapshot));
+    }
+
+    private void publishEventsSafely(SuccessfulAiTurn turn) {
+        try {
+            eventPublisher.publishSuccessfulTurn(turn);
+        } catch (RuntimeException exception) {
+            metrics.kafkaPublishFailure("successful_turn");
+            log.warn("Kafka event dispatch failed conversation={} errorType={}",
+                turn.conversationId(), rootCauseName(exception));
+        }
     }
 
     private long elapsedMillis(long startedAt) {
@@ -217,7 +278,9 @@ public class AiChatService {
         return cause.getClass().getSimpleName();
     }
 
-    private record PreparedRequest(List<ChatMessage> context, String cacheKey,
+    private record PreparedRequest(List<ChatMessage> context,
+                                   List<ConversationMessage> conversationSnapshot,
+                                   String cacheKey,
                                    Optional<String> retryCacheKey) {
     }
 }

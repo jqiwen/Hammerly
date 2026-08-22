@@ -41,15 +41,19 @@ public class SpringRedisStateClient implements RedisStateClient {
     }
 
     @Override
-    public void appendAndTrim(String key, List<String> values, int maximumSize, Duration ttl) {
+    public long appendAndTrim(String key, List<String> values, int maximumSize, Duration ttl) {
         if (values.isEmpty()) {
-            return;
+            return 0;
         }
         List<String> arguments = new ArrayList<>(values.size() + 2);
         arguments.add(Integer.toString(maximumSize));
         arguments.add(Long.toString(Math.max(1, ttl.toSeconds())));
         arguments.addAll(values);
-        redis.execute(APPEND_AND_TRIM, List.of(key), arguments.toArray());
+        Long result = redis.execute(APPEND_AND_TRIM, List.of(key), arguments.toArray());
+        if (result == null) {
+            throw new IllegalStateException("Redis conversation script returned no result");
+        }
+        return result;
     }
 
     @Override
@@ -60,6 +64,11 @@ public class SpringRedisStateClient implements RedisStateClient {
     @Override
     public void set(String key, String value, Duration ttl) {
         redis.opsForValue().set(key, value, ttl);
+    }
+
+    @Override
+    public boolean setIfAbsent(String key, String value, Duration ttl) {
+        return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(key, value, ttl));
     }
 
     @Override

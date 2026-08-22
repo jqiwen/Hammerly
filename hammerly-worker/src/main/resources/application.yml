@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: hammerly-worker
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${HAMMERLY_WORKER_GROUP_ID:hammerly-worker-v1}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        isolation.level: read_committed
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL:false}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+      timeout: ${REDIS_COMMAND_TIMEOUT:2s}
+
+hammerly:
+  worker:
+    events-topic: ${HAMMERLY_KAFKA_AI_EVENTS_TOPIC:hammerly.ai.events.v1}
+    jobs-topic: ${HAMMERLY_KAFKA_AI_JOBS_TOPIC:hammerly.ai.jobs.v1}
+    processed-event-ttl: ${HAMMERLY_WORKER_PROCESSED_EVENT_TTL:7d}
+    processing-lock-ttl: ${HAMMERLY_WORKER_PROCESSING_LOCK_TTL:2m}
+    summary-ttl: ${HAMMERLY_WORKER_SUMMARY_TTL:7d}
+
+server:
+  port: ${PORT:5002}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: never

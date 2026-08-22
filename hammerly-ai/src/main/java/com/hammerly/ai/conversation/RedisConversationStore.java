@@ -49,21 +49,25 @@ public class RedisConversationStore implements ConversationStore {
     }
 
     @Override
-    public void append(String userId, String conversationId, List<ConversationMessage> messages) {
+    public ConversationAppendResult append(String userId, String conversationId,
+                                           List<ConversationMessage> messages) {
         if (messages.isEmpty()) {
-            return;
+            return ConversationAppendResult.success(0);
         }
         String key = key(userId, conversationId);
         try {
             List<String> values = messages.stream().map(this::serialize).toList();
-            redis.appendAndTrim(key, values, properties.conversation().maxMessages(),
+            long messageCount = redis.appendAndTrim(key, values,
+                properties.conversation().maxMessages(),
                 properties.conversation().ttl());
             metrics.conversationWrite(true);
+            return ConversationAppendResult.success(Math.toIntExact(messageCount));
         } catch (RuntimeException exception) {
             metrics.conversationWrite(false);
             metrics.redisError("conversation_write");
             log.warn("Redis conversation write failed; response will still be returned key={} errorType={}",
                 key, rootCauseName(exception));
+            return ConversationAppendResult.failure();
         }
     }
 

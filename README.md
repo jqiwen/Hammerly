@@ -4,245 +4,130 @@
 
 # Hammerly — Auction Platform with AI Support
 
-Hammerly is a React and Spring Boot auction application with an isolated Spring AI customer-support service. The browser communicates only with Hammerly Core; Hammerly Core verifies JWTs and proxies AI traffic to the internal Hammerly AI service.
+Hammerly is a React and Spring Boot auction application with an isolated AI support service and Kafka-backed background worker. The browser communicates only with Hammerly Core; Core verifies JWTs and proxies AI traffic to the internal AI service.
 
-Live frontend: https://hammerly.jqiwen.com
+Live frontend: [hammerly.jqiwen.com](https://hammerly.jqiwen.com)
 
-<<<<<<< HEAD
 ## Implemented architecture
-=======
 
-### 🌐 [View Hammerly →](https://hammerly.jqiwen.com)
-
----
-
-## Overview
-
-Hammerly is a full-stack auction platform that allows users to create listings, place bids, manage watchlists, and interact with an AI-powered customer support assistant.
-
-The system separates transactional marketplace workloads from AI workloads using independent Spring Boot microservices.
-
-- **Frontend:** React + TypeScript application
-- **Core Service:** Spring Boot service for users, auctions, bids, authentication, and business logic
-- **AI Service:** Spring Boot + Spring AI service for LLM orchestration, RAG, embeddings, and semantic search
-- **Async Worker:** Kafka consumer service for background AI and event-processing workloads
-- **Database:** Supabase PostgreSQL + pgvector
-- **Cache:** Redis
-- **Messaging:** Apache Kafka
-- **Observability:** Prometheus + Grafana
-- **Infrastructure:** Docker + Kubernetes + Google Cloud
-- **Performance Testing:** k6
-
-The browser communicates only with the Hammerly Core service. AI services remain behind the Core service boundary.
-
----
-
-## Features
-
-### Online Auction Platform
-
-- User registration and login
-- JWT-based authentication
-- Create and manage auction listings
-- Browse active auctions
-- Place and track bids
-- Watchlist management
-- User profile management
-- Payment method management
-- PostgreSQL persistence
-- Flyway database migrations
-- Role and authorization checks through Spring Security
-
-### AI Customer Support
-
-- Floating AI Support assistant
-- AI-powered FAQ interface
-- Streaming LLM responses
-- Multi-turn conversation context
-- Hammerly-specific system prompts
-- Retrieval-Augmented Generation
-- Semantic search
-- Vector embeddings
-- Source-grounded responses
-- Graceful AI provider failure handling
-
-### RAG Knowledge Base
-
-Hammerly AI retrieves platform-specific information before generating responses.
-
-The knowledge base contains:
-
-- Auction rules
-- Bidding instructions
-- Seller guides
-- Account help
-- Watchlist information
-- Platform FAQs
-- Customer support documentation
-
-
-### Distributed Processing
-
-- Kafka event producers and consumers
-- Asynchronous conversation processing
-- AI response completion events
-- Background conversation summaries
-- Knowledge-base embedding jobs
-- Analytics event processing
-- Independent worker scaling
-
-### Redis
-
-Redis is used for:
-
-- Distributed caching
-- AI response caching
-- RAG retrieval caching
-- Conversation state
-- Distributed rate limiting
-- Shared state across multiple service instances
-
-### High-Concurrency Design
-
-- Stateless Core and AI services
-- Independent service scaling
-- Redis-backed shared state
-- Kafka-backed asynchronous workloads
-- Bounded LLM concurrency
-- Explicit request timeouts
-- Circuit breakers
-- Bulkhead isolation
-- Rate limiting
-- Graceful degradation
-- Kubernetes horizontal autoscaling
-
----
-
-# Microservice Design
-
-## Hammerly Core
-
-Directory:
->>>>>>> e713cbf6c393665e383fee92684edb68e212be11
+The synchronous user-facing path is:
 
 ```text
-React
+React 19
   ↓ HTTP + JWT + SSE
-Hammerly Core (hammerly-backend)
+Hammerly Core (hammerly-backend, :5000)
   ↓ trusted internal user header + SSE
-Hammerly AI (hammerly-ai)
-  ├── Redis
+Hammerly AI (hammerly-ai, :5001)
+  ├── Redis (:6379)
   │   ├── recent conversation state
-  │   ├── completed AI response cache
-  │   └── distributed per-user rate limiting
+  │   ├── completed-response cache
+  │   └── distributed rate limiting
   └── OpenAI through Spring AI
+       ↓
+      SSE response
 ```
 
-The repository currently contains:
+The asynchronous side-effect path added in Phase 4 is:
 
-- `hammerly-ui/`: React 19, TypeScript, Vite, and Tailwind UI
-- `hammerly-backend/`: authentication, users, profiles, auctions, bids, watchlists, payment-method metadata, PostgreSQL/Flyway persistence, and the public AI proxy
-- `hammerly-ai/`: Hammerly support prompt, OpenAI integration, streaming chat orchestration, Redis state, rate limiting, and Actuator metrics
+```text
+successful AI turn committed to Redis
+  ↓ non-blocking dispatch on a dedicated executor
+Kafka (:9092, KRaft)
+  ├── hammerly.ai.events.v1
+  └── hammerly.ai.jobs.v1
+       ↓ consumer group hammerly-worker-v1
+hammerly-worker (:5002)
+  ├── AI-turn analytics metrics
+  └── extractive conversation summaries → separate Redis key
+```
 
-The marketplace uses JWT authentication. Core verifies the token and creates an `AuthenticatedUser`; the browser cannot choose the internal user identifier sent to AI.
+Kafka is not in the real-time AI response path. Hammerly AI does not wait for Kafka metadata, delivery, acknowledgment, or the worker before completing a chat. A stopped worker leaves chat fully operational while Kafka retains its uncommitted backlog. When the same consumer group restarts, it resumes from committed offsets. A broker outage is also isolated from chat, but events attempted while the broker is completely unavailable are best-effort and are not guaranteed to be recovered.
 
-## Phase 3 — Redis-backed AI State
+The repository contains:
 
-Redis is used only by `hammerly-ai` and has three responsibilities.
+- `hammerly-ui/`: React 19, TypeScript, Vite, and Tailwind UI.
+- `hammerly-backend/`: authentication, users, profiles, auctions, bids, watchlists, payment metadata, PostgreSQL/Flyway persistence, and the public AI proxy.
+- `hammerly-ai/`: OpenAI integration, SSE streaming, bounded provider retry, Redis conversation/cache/rate-limit state, and the asynchronous Kafka producer.
+- `hammerly-worker/`: independent Java 21/Spring Boot 3.5.16 Kafka consumer for idempotent summaries and lightweight analytics.
 
-### 1. Recent conversation state
+## Phase 3 — Redis-backed AI state
 
-Each UI chat hook creates one UUID `conversationId`. Core combines that ID with its trusted authenticated user ID before forwarding the request. For clients without a JWT, Core creates an isolated guest identity scoped to the unguessable conversation UUID; authenticated users always use the user ID from the verified JWT.
-
-Conversation messages are JSON objects containing `role`, `content`, and `timestamp`. A Lua operation appends messages, trims the Redis list to the configured maximum, and refreshes its TTL atomically. The default is the most recent 20 messages for 24 hours. Browser history is accepted only as a backward-compatible bootstrap when Redis has no stored history; stored Redis context is authoritative afterward.
-
-Key:
+Recent conversation messages are stored at:
 
 ```text
 hammerly:conversation:{trustedUserId}:{conversationId}
 ```
 
-### 2. AI response cache
+A Lua operation atomically appends messages, trims to the configured maximum (20 by default), and refreshes the 24-hour default TTL. Browser history is accepted only as a bootstrap when Redis has no stored history.
 
-Completed responses are cached for 15 minutes by default. The SHA-256 key includes the cache version, system-prompt hash, trusted user ID, conversation ID, normalized prompt, and ordered conversation roles/content. Context changes therefore produce a different key, and cached content cannot cross users or conversations.
+Completed AI answers are cached for 15 minutes by default at `hammerly:ai:response:v1:{sha256}`. The key includes prompt, user, conversation, system prompt, and ordered context. A response is cached and appended only after a complete model stream; partial or failed streams are not committed.
 
-Key:
+The distributed rate limiter defaults to 20 requests per trusted user per 60-second fixed window and uses `hammerly:rate-limit:ai:{trustedUserId}:{windowNumber}`. Redis state operations degrade gracefully and rate limiting fails open during an outage so infrastructure state loss does not make AI support unavailable.
 
-```text
-hammerly:ai:response:v1:{sha256}
-```
+## Phase 4 — Kafka and async worker
 
-On a cache hit, AI does not call OpenAI. The cached answer is emitted as a normal SSE `chunk` followed by the existing `done` event. An exact retry of the immediately previous user turn checks the prior-context key, so a completed request can be replayed even though its user/assistant pair has already entered conversation history. On a miss, chunks stream immediately; only a successfully completed answer is cached and appended to conversation history.
+After a complete answer and successful Redis conversation append, AI schedules two `message.created` facts. When stored history reaches the configurable threshold (10 messages by default), AI also schedules one `conversation.summary.requested` job. A Redis `SET NX` marker prevents duplicate requests for that threshold.
 
-### 3. Distributed rate limiting
+All conversation records use `conversationId` as their Kafka key. The local broker uses three partitions: events for one conversation remain ordered, while different conversations can run in parallel. AI sends on a dedicated bounded executor and uses short producer timeouts; callbacks record success/failure without changing the chat result.
 
-The default policy is 20 AI requests per trusted user per 60-second fixed window. A Redis Lua script performs `INCR` and initial expiry atomically, so the count is shared by all Hammerly AI instances. Core obtains a permit before committing the public streaming response, allowing request 21 to return HTTP 429 with rate-limit headers and this error code:
+The worker uses group `hammerly-worker-v1`, `auto.offset.reset=earliest`, disabled auto-commit, and `MANUAL_IMMEDIATE` acknowledgment. It acknowledges only after processing returns successfully. Delivery is at least once. A Redis processing lock coordinates concurrent duplicates, and a completed marker at `hammerly:worker:processed:{eventId}` suppresses redelivery for seven days.
 
-```json
-{
-  "error": "AI_RATE_LIMIT_EXCEEDED",
-  "message": "Too many AI requests. Please try again shortly."
-}
-```
-
-Key:
+Processing gets an initial attempt plus three fixed 500 ms retries. Exhausted records retain their key and partition and go to `<original-topic>.DLT`. Summary records are stored separately for seven days by default:
 
 ```text
-hammerly:rate-limit:ai:{trustedUserId}:{windowNumber}
+hammerly:conversation:summary:{trustedUserId}:{conversationId}
 ```
 
-### Redis failure behavior
+The Phase 4 summarizer is deterministic and extractive, so background processing makes no paid model call. The versioned job contains the bounded conversation snapshot needed for worker-offline recovery. See [docs/events/README.md](docs/events/README.md) for every topic and wire contract.
 
-Conversation reads/writes and response-cache operations log warnings and degrade gracefully; an AI request can continue without stored state or caching. Rate limiting deliberately fails open during a Redis outage and records a warning and failure metric, so Redis loss does not make AI support unavailable. The Redis health contributor is disabled for overall application health because Redis is a degradable dependency.
+## Metrics and health
 
-### Metrics
+AI exposes `/actuator/health` and `/actuator/metrics` on port 5001. Existing cache, rate-limit, Redis, request, and provider metrics remain, with:
 
-Actuator exposes `/actuator/health` and `/actuator/metrics`. Phase 3 records:
+- `hammerly.kafka.publish.success` tagged by `eventType`
+- `hammerly.kafka.publish.failure` tagged by `eventType`
 
-- `hammerly.ai.cache.hit`
-- `hammerly.ai.cache.miss`
-- `hammerly.ai.rate_limit.allowed`
-- `hammerly.ai.rate_limit.rejected`
-- `hammerly.ai.rate_limit.redis_failure`
-- `hammerly.ai.conversation.read` with `outcome=success|failure`
-- `hammerly.ai.conversation.write` with `outcome=success|failure`
-- `hammerly.ai.redis.error` with a component tag
-- `hammerly.ai.request.latency` with `outcome=cache_hit|llm_request|llm_error`
+The worker exposes the same Actuator endpoints on port 5002 and records:
 
-## Configuration
+- `hammerly.worker.event.processed`
+- `hammerly.worker.event.failed`
+- `hammerly.worker.event.retry`
+- `hammerly.worker.event.dlt`
+- `hammerly.worker.event.duplicate`
+- `hammerly.worker.analytics.ai_turn.completed`
+- `hammerly.worker.summary.success`
+- `hammerly.worker.summary.failure`
+- `hammerly.worker.summary.latency`
 
-`hammerly-ai/.env.example` documents the complete local AI configuration. Spring Boot reads these values from the process environment (an IDE or shell may load an `.env` file for you).
+## Local configuration
+
+`hammerly-ai/.env.example`, `hammerly-worker/.env.example`, `hammerly-backend/.env.example`, and `hammerly-ui/.env.example` document service-specific values. Important Phase 4 variables are:
 
 | Variable | Default | Purpose |
-| --- | ---: | --- |
-| `REDIS_HOST` | `localhost` | Redis hostname |
-| `REDIS_PORT` | `6379` | Redis port |
-| `REDIS_PASSWORD` | empty | Optional Redis password |
-| `REDIS_SSL` | `false` | Enable Redis TLS |
-| `REDIS_CONNECT_TIMEOUT` | `2s` | Lettuce connection timeout |
-| `REDIS_COMMAND_TIMEOUT` | `2s` | Redis command timeout |
-| `HAMMERLY_AI_CONVERSATION_MAX_MESSAGES` | `20` | Stored messages per conversation |
-| `HAMMERLY_AI_CONVERSATION_TTL` | `86400` | Conversation TTL in seconds |
-| `HAMMERLY_AI_RESPONSE_CACHE_TTL` | `900` | Response-cache TTL in seconds |
-| `HAMMERLY_AI_RATE_LIMIT_REQUESTS` | `20` | Requests per window |
-| `HAMMERLY_AI_RATE_LIMIT_WINDOW_SECONDS` | `60` | Fixed-window length |
-
-Core configuration remains in `hammerly-backend/.env.example`; its AI base URL defaults to `http://localhost:5001`.
+| --- | --- | --- |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker address used by AI and worker |
+| `HAMMERLY_KAFKA_ENABLED` | `true` | Enables best-effort AI event publication |
+| `HAMMERLY_WORKER_GROUP_ID` | `hammerly-worker-v1` | Durable worker consumer group |
+| `HAMMERLY_WORKER_CONCURRENCY` | `3` | Parallel listener containers |
+| `HAMMERLY_AI_SUMMARY_AFTER_MESSAGES` | `10` | Stored-message summary threshold |
+| `HAMMERLY_WORKER_PROCESSED_EVENT_TTL` | `7d` | Completed-event marker TTL |
+| `HAMMERLY_WORKER_PROCESSING_LOCK_TTL` | `2m` | In-progress event lock TTL |
+| `HAMMERLY_WORKER_SUMMARY_TTL` | `7d` | Separate summary TTL |
 
 ## Run locally
 
 Requirements: Java 21+, Node/npm, Docker, an OpenAI API key for live AI answers, and a PostgreSQL connection for Core.
 
-From the repository root, start only Redis and verify it:
+Start Redis and the single-node KRaft broker:
 
 ```powershell
-docker compose up -d redis
+docker compose up -d redis kafka
+docker compose ps
 docker compose exec redis redis-cli ping
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
 ```
 
-The expected response is `PONG`.
-
-In separate terminals, provide the environment variables appropriate to your machine and start the services:
+Start each application in a separate PowerShell terminal:
 
 ```powershell
 cd hammerly-ai
@@ -258,23 +143,36 @@ $env:JWT_SECRET = "your-development-secret"
 ```
 
 ```powershell
+cd hammerly-worker
+.\mvnw.cmd spring-boot:run
+```
+
+```powershell
 cd hammerly-ui
 npm install
 npm run dev
 ```
 
-Development ports default to UI `3000`, Core `5000`, AI `5001`, and Redis `6379`.
+Ports default to UI `3000`, Core `5000`, AI `5001`, worker `5002`, Redis `6379`, and Kafka `9092`.
+
+Inspect worker lag and a generated summary with:
+
+```powershell
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group hammerly-worker-v1 --describe
+docker compose exec redis redis-cli GET "hammerly:conversation:summary:{userId}:{conversationId}"
+```
 
 ## Build and test
 
 ```powershell
 cd hammerly-ai
 .\mvnw.cmd test
-.\mvnw.cmd package -DskipTests
+
+cd ..\hammerly-worker
+.\mvnw.cmd test
 
 cd ..\hammerly-backend
 .\mvnw.cmd test
-.\mvnw.cmd package -DskipTests
 
 cd ..\hammerly-ui
 npm run type-check
@@ -282,14 +180,16 @@ npm run lint
 npm run build
 ```
 
-Core integration tests use Testcontainers PostgreSQL and run when Docker is available.
+Worker tests use embedded KRaft Kafka and do not require Docker, Redis, OpenAI, or paid calls. Core integration tests use Testcontainers PostgreSQL when Docker is available.
 
-## Future phases
+## Future Phase 5
 
-The following are not implemented by Phase 3 and remain future work:
+Phase 4 defines `embedding.requested` and an embedding handler boundary only. The following are deliberately not implemented yet:
 
-- retrieval-augmented generation and knowledge-base ingestion
-- embeddings, semantic search, and pgvector
-- Kafka producers, consumers, and asynchronous AI workers
-- Kubernetes deployment and autoscaling
-- Prometheus/Grafana deployment dashboards
+- knowledge-base/document ingestion and chunking
+- embedding model integration and embedding storage
+- pgvector schema and vector similarity search
+- retrieval, source citation, and prompt grounding
+- RAG evaluation and retrieval caching
+
+Kubernetes, GKE, and Prometheus/Grafana deployment dashboards also remain future infrastructure work.

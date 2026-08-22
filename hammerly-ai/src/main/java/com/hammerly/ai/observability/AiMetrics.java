@@ -72,6 +72,14 @@ public class AiMetrics {
             "category", failure.category().tag()).increment();
     }
 
+    public void kafkaPublishSuccess(String eventType) {
+        registry.counter("hammerly.kafka.publish.success", "eventType", eventType).increment();
+    }
+
+    public void kafkaPublishFailure(String eventType) {
+        registry.counter("hammerly.kafka.publish.failure", "eventType", eventType).increment();
+    }
+
     private void providerLatency(String operation, String outcome, long startedAtNanos) {
         registry.timer("hammerly.ai.provider.latency",
             "operation", operation,

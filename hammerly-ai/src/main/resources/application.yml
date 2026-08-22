@@ -33,8 +33,26 @@ spring:
           max-completion-tokens: ${OPENAI_MAX_OUTPUT_TOKENS:600}
           store: false
           internal-tool-execution-enabled: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 1
+      properties:
+        enable.idempotence: true
+        max.block.ms: 500
+        request.timeout.ms: 1000
+        delivery.timeout.ms: 2000
 
 hammerly:
+  kafka:
+    enabled: ${HAMMERLY_KAFKA_ENABLED:true}
+    events-topic: ${HAMMERLY_KAFKA_AI_EVENTS_TOPIC:hammerly.ai.events.v1}
+    jobs-topic: ${HAMMERLY_KAFKA_AI_JOBS_TOPIC:hammerly.ai.jobs.v1}
+    summary-after-messages: ${HAMMERLY_AI_SUMMARY_AFTER_MESSAGES:10}
+    summary-request-marker-ttl: ${HAMMERLY_AI_SUMMARY_REQUEST_MARKER_TTL:7d}
   ai:
     system-prompt: classpath:prompts/hammerly-support-system.txt
     state:

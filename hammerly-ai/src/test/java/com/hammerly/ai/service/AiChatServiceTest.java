@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import com.hammerly.ai.cache.AiCacheKeyFactory;
 import com.hammerly.ai.cache.AiResponseCache;
@@ -18,6 +19,7 @@ import com.hammerly.ai.config.AiStateProperties;
 import com.hammerly.ai.config.HammerlySystemPrompt;
 import com.hammerly.ai.config.OpenAiConfigurationState;
 import com.hammerly.ai.conversation.ConversationHistory;
+import com.hammerly.ai.conversation.ConversationAppendResult;
 import com.hammerly.ai.conversation.ConversationMessage;
 import com.hammerly.ai.conversation.ConversationStore;
 import com.hammerly.ai.conversation.RedisConversationStore;
@@ -27,6 +29,7 @@ import com.hammerly.ai.diagnostic.OpenAiProviderFailureClassifier;
 import com.hammerly.ai.diagnostic.OpenAiProviderFailureDiagnostics;
 import com.hammerly.ai.diagnostic.OpenAiProviderRetryPolicy;
 import com.hammerly.ai.exception.AiProviderUnavailableException;
+import com.hammerly.ai.event.AiEventPublisher;
 import com.hammerly.ai.observability.AiMetrics;
 import com.hammerly.ai.ratelimit.AiRateLimiter;
 import com.hammerly.ai.ratelimit.RateLimitDecision;
@@ -56,6 +59,7 @@ class AiChatServiceTest {
     private ConversationStore conversationStore;
     private AiResponseCache responseCache;
     private AiCacheKeyFactory cacheKeyFactory;
+    private AiEventPublisher eventPublisher;
     private AiChatService service;
 
     @BeforeEach
@@ -68,10 +72,14 @@ class AiChatServiceTest {
             .thenReturn(new RateLimitDecision(true, 20, 19, 1_700_000_060L, true));
         when(conversationStore.getRecent(anyString(), anyString()))
             .thenReturn(ConversationHistory.available(List.of()));
+        when(conversationStore.append(anyString(), anyString(), any()))
+            .thenReturn(ConversationAppendResult.success(2));
+        eventPublisher = mock(AiEventPublisher.class);
         cacheKeyFactory = new AiCacheKeyFactory(new HammerlySystemPrompt("system prompt"));
         service = new AiChatService(modelClient, conversationStore, responseCache,
             cacheKeyFactory, rateLimiter,
             new AiMetrics(new SimpleMeterRegistry()),
+            eventPublisher,
             Clock.fixed(Instant.parse("2026-08-22T12:00:00Z"), ZoneOffset.UTC));
     }
 
@@ -86,6 +94,7 @@ class AiChatServiceTest {
         verify(modelClient).chat(List.of(), "How do I bid?");
         verify(responseCache).put(anyString(), org.mockito.ArgumentMatchers.eq("Use the bid form."));
         verify(conversationStore).append(anyString(), anyString(), any());
+        verify(eventPublisher).publishSuccessfulTurn(any());
     }
 
     @Test
@@ -152,6 +161,31 @@ class AiChatServiceTest {
         assertThrows(AiProviderUnavailableException.class, () -> chunks.collectList().block());
         verify(responseCache, never()).put(anyString(), anyString());
         verify(conversationStore, never()).append(anyString(), anyString(), any());
+        verify(eventPublisher, never()).publishSuccessfulTurn(any());
+    }
+
+    @Test
+    void failedProviderResponseDoesNotPublishEvent() {
+        when(responseCache.get(anyString())).thenReturn(Optional.empty());
+        when(modelClient.chat(any(), anyString()))
+            .thenThrow(new AiProviderUnavailableException("provider failed"));
+
+        assertThrows(AiProviderUnavailableException.class,
+            () -> service.chat("42", request()));
+
+        verify(eventPublisher, never()).publishSuccessfulTurn(any());
+    }
+
+    @Test
+    void eventDispatchFailureDoesNotFailSuccessfulChat() {
+        when(responseCache.get(anyString())).thenReturn(Optional.empty());
+        when(modelClient.chat(any(), anyString())).thenReturn("Answer survives Kafka outage");
+        doThrow(new IllegalStateException("Kafka unavailable"))
+            .when(eventPublisher).publishSuccessfulTurn(any());
+
+        AiChatResult result = service.chat("42", request());
+
+        assertEquals("Answer survives Kafka outage", result.answer());
     }
 
     @Test
@@ -193,7 +227,7 @@ class AiChatServiceTest {
             new RedisAiResponseCache(failedRedis, properties, outageMetrics),
             new AiCacheKeyFactory(new HammerlySystemPrompt("system prompt")),
             new RedisAiRateLimiter(failedRedis, properties, outageMetrics, fixedClock),
-            outageMetrics, fixedClock);
+            outageMetrics, eventPublisher, fixedClock);
         when(modelClient.chat(any(), anyString())).thenReturn("Answer despite Redis outage");
 
         AiChatResult result = outageService.chat("42", request());
