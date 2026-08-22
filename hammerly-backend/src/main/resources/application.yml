@@ -39,6 +39,7 @@ hammerly:
     read-timeout: ${HAMMERLY_AI_READ_TIMEOUT:45s}
     stream-timeout: ${HAMMERLY_AI_STREAM_TIMEOUT:50s}
     diagnostic-enabled: ${HAMMERLY_AI_DIAGNOSTIC_ENABLED:true}
+    internal-token: ${HAMMERLY_AI_INTERNAL_TOKEN:}
   database:
     seed: ${HAMMERLY_SEED_ENABLED:true}
   debug-endpoint:

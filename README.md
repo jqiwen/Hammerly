@@ -99,6 +99,47 @@ The worker exposes the same Actuator endpoints on port 5002 and records:
 - `hammerly.worker.summary.failure`
 - `hammerly.worker.summary.latency`
 
+## CI/CD pipeline
+
+CI validates source changes; CD publishes or deploys artifacts after relevant changes reach `main`. CI never reads production secrets and does not call paid OpenAI APIs.
+
+```text
+pull request / push
+  ├── UI     → npm ci → lint → type-check → build
+  ├── Core   → isolated Testcontainers tests → package
+  ├── AI     → mocked provider tests → package
+  └── Worker → embedded Kafka tests → package
+
+relevant push to main (after GCP_DEPLOYMENTS_ENABLED=true)
+  ├── UI     → GitHub Pages
+  ├── Core   → Docker → Artifact Registry → Cloud Run → /health
+  ├── AI     → Docker → Artifact Registry → Cloud Run → /actuator/health
+  └── Worker → Docker → Artifact Registry → runtime intentionally pending
+```
+
+[`ci.yml`](.github/workflows/ci.yml) exposes clear `UI CI`, `Core CI`, `AI CI`, and `Worker CI` checks for branch protection. A small first job determines affected services, so isolated changes do not rebuild unrelated applications. Workflow and shared Compose changes select the relevant checks. All Java jobs use Java 21, the service Maven wrapper, and Maven dependency caching; UI uses Node 24, `npm ci`, and npm caching.
+
+The existing GitHub Pages deployment remains in [`deploy-frontend.yml`](.github/workflows/deploy-frontend.yml). It now performs the same lint and type checks as CI and fails early when the public repository variable `HAMMERLY_API_URL` is absent. Only browser-safe values belong in `VITE_*`; application secrets must never be exposed through Vite.
+
+Core and AI use production multi-stage, non-root images. [`deploy-core.yml`](.github/workflows/deploy-core.yml) and [`deploy-ai.yml`](.github/workflows/deploy-ai.yml) authenticate with GitHub OIDC/Google Workload Identity Federation, push both `${GITHUB_SHA}` and `latest`, deploy the immutable SHA tag to Cloud Run, and verify the existing health endpoint. Runtime secret values come directly from Google Secret Manager. `GCP_DEPLOYMENTS_ENABLED` defaults to disabled-by-absence, preventing an unconfigured repository from attempting a production deployment.
+
+AI's `/internal/**` endpoints require `HAMMERLY_AI_INTERNAL_TOKEN` when it is configured. Core attaches the same token to every internal AI request. Production binds the shared value from Secret Manager to both services, while local development may leave it empty. This prevents a public Cloud Run URL from treating a caller-supplied user header as trusted. Health checks remain non-AI, public, and free of provider calls.
+
+The Kafka worker is different from the request-driven services. [`deploy-worker.yml`](.github/workflows/deploy-worker.yml) tests it and publishes `hammerly-worker:${GITHUB_SHA}` to Artifact Registry, but does not deploy an ordinary scale-to-zero Cloud Run service. Production worker deployment remains blocked until a production Kafka provider, network path, and continuous runtime such as a Cloud Run worker pool or existing GKE/VM environment are selected.
+
+Complete one-time API, Artifact Registry, service-account, Workload Identity Federation, Secret Manager, GitHub variable, rollout-order, and branch-protection setup in [`docs/deployment/gcp.md`](docs/deployment/gcp.md). No long-lived GCP JSON key is required.
+
+### Local development versus production
+
+| Concern | Local development | Production |
+| --- | --- | --- |
+| PostgreSQL | Developer Supabase URL or test container | Secret Manager `SUPABASE_DB_URL` |
+| Redis/Kafka | Root Docker Compose on localhost | Separately provisioned managed/reachable services |
+| OpenAI | Ignored local file or environment variable | Secret Manager `OPENAI_API_KEY` |
+| Core-to-AI trust | Token optional on localhost | Secret Manager shared internal token |
+| GCP authentication | Not required | GitHub OIDC/WIF, no service-account key file |
+| Deployment URLs | localhost defaults | GitHub variables, never Java constants |
+
 ## Local configuration
 
 `hammerly-ai/.env.example`, `hammerly-worker/.env.example`, `hammerly-backend/.env.example`, and `hammerly-ui/.env.example` document service-specific values. Important Phase 4 variables are:
@@ -113,6 +154,7 @@ The worker exposes the same Actuator endpoints on port 5002 and records:
 | `HAMMERLY_WORKER_PROCESSED_EVENT_TTL` | `7d` | Completed-event marker TTL |
 | `HAMMERLY_WORKER_PROCESSING_LOCK_TTL` | `2m` | In-progress event lock TTL |
 | `HAMMERLY_WORKER_SUMMARY_TTL` | `7d` | Separate summary TTL |
+| `HAMMERLY_AI_INTERNAL_TOKEN` | empty locally | Shared Core-to-AI production request token |
 
 ## Run locally
 

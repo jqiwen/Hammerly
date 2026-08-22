@@ -8,6 +8,7 @@ public record AiPlatformProperties(
     String baseUrl,
     Duration connectTimeout,
     Duration readTimeout,
-    Duration streamTimeout
+    Duration streamTimeout,
+    String internalToken
 ) {
 }

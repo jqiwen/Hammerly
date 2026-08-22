@@ -1,0 +1,116 @@
+name: Publish Worker Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "hammerly-worker/**"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-hammerly-worker
+  cancel-in-progress: true
+
+jobs:
+  configuration:
+    name: Worker publication configuration
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.guard.outputs.enabled }}
+    steps:
+      - name: Check publication configuration
+        id: guard
+        shell: bash
+        env:
+          DEPLOYMENTS_ENABLED: ${{ vars.GCP_DEPLOYMENTS_ENABLED }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          if [[ "${DEPLOYMENTS_ENABLED}" != "true" ]]; then
+            echo "::notice::Worker image publication is prepared but disabled. Runtime deployment remains intentionally blocked until production Kafka and a continuous worker platform are selected."
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          missing=0
+          for variable_name in \
+            GCP_PROJECT_ID GCP_REGION GCP_WORKLOAD_IDENTITY_PROVIDER \
+            GCP_DEPLOY_SERVICE_ACCOUNT GCP_ARTIFACT_REPOSITORY; do
+            if [[ -z "${!variable_name:-}" ]]; then
+              echo "::error::Missing required GitHub variable: ${variable_name}"
+              missing=1
+            fi
+          done
+          [[ "${missing}" == "0" ]]
+          echo "enabled=true" >> "${GITHUB_OUTPUT}"
+
+  publish:
+    name: Worker image CD
+    needs: configuration
+    if: needs.configuration.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: hammerly-worker
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+          cache-dependency-path: hammerly-worker/pom.xml
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Test with embedded Kafka
+        run: ./mvnw -B -ntp test
+
+      - name: Package
+        run: ./mvnw -B -ntp package -DskipTests
+
+      - name: Authenticate to Google Cloud with OIDC
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+
+      - name: Build and push immutable worker image
+        shell: bash
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GAR_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          image_repository="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/hammerly-worker"
+          docker build \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --tag "${image_repository}:${GITHUB_SHA}" \
+            --tag "${image_repository}:latest" \
+            .
+          docker push "${image_repository}:${GITHUB_SHA}"
+          docker push "${image_repository}:latest"

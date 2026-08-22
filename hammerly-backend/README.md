@@ -36,6 +36,7 @@ No tables need to be created in the Supabase dashboard. Flyway creates the `hamm
 | `HAMMERLY_DEBUG_ENDPOINT_ENABLED` | `true` locally; disabled by `prod` | Enables the local `GET /api/auth/` database debug route. |
 | `HAMMERLY_AI_URL` | `http://localhost:5001` | Base URL of the internal Hammerly AI service. Core does not contact it during startup. |
 | `HAMMERLY_AI_DIAGNOSTIC_ENABLED` | `true` locally; disabled by `prod` | Enables local `GET /internal/integration/ai-health` verification. |
+| `HAMMERLY_AI_INTERNAL_TOKEN` | empty locally | Shared token Core adds to internal AI requests; required in production. |
 | `HAMMERLY_DB_MAX_POOL_SIZE` | `5` | Hikari maximum pool size. |
 | `HAMMERLY_DB_MIN_IDLE` | `0` | Hikari minimum idle connections. |
 
@@ -54,16 +55,7 @@ Integration tests use an isolated PostgreSQL 16 Testcontainer and never use Supa
 
 ## Cloud Run and Secret Manager
 
-Store the complete Session Pooler JDBC URL in Google Secret Manager, grant the Cloud Run service account `roles/secretmanager.secretAccessor`, and expose the secret as `SUPABASE_DB_URL`:
-
-```powershell
-gcloud secrets create hammerly-supabase-db-url --replication-policy=automatic
-gcloud secrets versions add hammerly-supabase-db-url --data-file=-
-gcloud secrets add-iam-policy-binding hammerly-supabase-db-url --member="serviceAccount:<CLOUD_RUN_SERVICE_ACCOUNT>" --role="roles/secretmanager.secretAccessor"
-gcloud run services update <CLOUD_RUN_SERVICE> --region=<REGION> --update-secrets="SUPABASE_DB_URL=hammerly-supabase-db-url:latest" --update-env-vars="SPRING_PROFILES_ACTIVE=prod,HAMMERLY_SEED_ENABLED=false"
-```
-
-When `gcloud secrets versions add` waits for standard input, paste the JDBC URL and finish input without committing it to a file. Keep the existing `PORT`, `FRONTEND_URL`, and `JWT_SECRET` Cloud Run configuration. The pool defaults to at most five connections, so no SQLite-era single-instance restriction is needed.
+The root `deploy-core.yml` workflow builds the production container, publishes the immutable commit-tagged image to Artifact Registry, deploys Cloud Run, binds `SUPABASE_DB_URL`, `JWT_SECRET`, and `HAMMERLY_AI_INTERNAL_TOKEN` from Secret Manager, and checks `/health`. Follow the repository-wide one-time setup in [`../docs/deployment/gcp.md`](../docs/deployment/gcp.md). Do not put database or JWT values in GitHub variables or service YAML.
 
 ## Package layout
 

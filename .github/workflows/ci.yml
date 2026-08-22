@@ -1,0 +1,227 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.filter.outputs.ui }}
+      core: ${{ steps.filter.outputs.core }}
+      ai: ${{ steps.filter.outputs.ai }}
+      worker: ${{ steps.filter.outputs.worker }}
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Select affected services
+        id: filter
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            changed_files="__all__"
+          else
+            if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+              comparison_base="${BASE_SHA}"
+            else
+              comparison_base="${BEFORE_SHA}"
+            fi
+
+            if [[ -z "${comparison_base}" ]] \
+              || [[ "${comparison_base}" == "0000000000000000000000000000000000000000" ]] \
+              || ! git cat-file -e "${comparison_base}^{commit}" 2>/dev/null; then
+              changed_files="__all__"
+            else
+              changed_files="$(git diff --name-only "${comparison_base}" "${HEAD_SHA}")"
+            fi
+          fi
+
+          changed() {
+            local pattern="$1"
+            [[ "${changed_files}" == "__all__" ]] \
+              || printf '%s\n' "${changed_files}" | grep -Eq "${pattern}"
+          }
+
+          shared=false
+          changed '^(\.github/workflows/ci\.yml|docker-compose\.yml|\.gitignore)$' && shared=true
+
+          ui=false
+          core=false
+          ai=false
+          worker=false
+          changed '^hammerly-ui/' && ui=true
+          changed '^hammerly-backend/' && core=true
+          changed '^hammerly-ai/' && ai=true
+          changed '^hammerly-worker/' && worker=true
+          changed '^\.github/workflows/deploy-frontend\.yml$' && ui=true
+          changed '^\.github/workflows/deploy-core\.yml$' && core=true
+          changed '^\.github/workflows/deploy-ai\.yml$' && ai=true
+          changed '^\.github/workflows/deploy-worker\.yml$' && worker=true
+          if changed '^\.github/workflows/_deploy-cloud-run\.yml$'; then
+            core=true
+            ai=true
+          fi
+
+          if [[ "${shared}" == "true" ]]; then
+            ui=true
+            core=true
+            ai=true
+            worker=true
+          fi
+
+          {
+            echo "ui=${ui}"
+            echo "core=${core}"
+            echo "ai=${ai}"
+            echo "worker=${worker}"
+          } >> "${GITHUB_OUTPUT}"
+
+  ui:
+    name: UI CI
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hammerly-ui
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: hammerly-ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Build
+        env:
+          BASE_PATH: /
+          VITE_API_URL: /api
+        run: npm run build
+
+  core:
+    name: Core CI
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hammerly-backend
+    env:
+      SUPABASE_DB_URL: jdbc:postgresql://127.0.0.1:1/ci-unused?sslmode=disable
+      JWT_SECRET: ci-only-secret-that-is-never-used-in-production
+      HAMMERLY_SEED_ENABLED: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+          cache-dependency-path: hammerly-backend/pom.xml
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Test
+        run: ./mvnw -B -ntp test
+
+      - name: Package
+        run: ./mvnw -B -ntp package -DskipTests
+
+  ai:
+    name: AI CI
+    needs: changes
+    if: needs.changes.outputs.ai == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hammerly-ai
+    env:
+      OPENAI_API_KEY: ""
+      HAMMERLY_KAFKA_ENABLED: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+          cache-dependency-path: hammerly-ai/pom.xml
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Test without paid providers
+        run: ./mvnw -B -ntp test
+
+      - name: Package
+        run: ./mvnw -B -ntp package -DskipTests
+
+  worker:
+    name: Worker CI
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hammerly-worker
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+          cache-dependency-path: hammerly-worker/pom.xml
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Test with embedded Kafka
+        run: ./mvnw -B -ntp test
+
+      - name: Package
+        run: ./mvnw -B -ntp package -DskipTests

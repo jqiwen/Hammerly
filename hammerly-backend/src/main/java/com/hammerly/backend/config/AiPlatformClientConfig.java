@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.util.StringUtils;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(AiPlatformProperties.class)
@@ -15,9 +16,14 @@ public class AiPlatformClientConfig {
         requestFactory.setConnectTimeout(properties.connectTimeout());
         requestFactory.setReadTimeout(properties.readTimeout());
 
-        return builder
+        RestClient.Builder configuredBuilder = builder
             .baseUrl(properties.baseUrl())
-            .requestFactory(requestFactory)
-            .build();
+            .requestFactory(requestFactory);
+
+        if (StringUtils.hasText(properties.internalToken())) {
+            configuredBuilder.requestInterceptor(new InternalAiTokenInterceptor(properties.internalToken()));
+        }
+
+        return configuredBuilder.build();
     }
 }

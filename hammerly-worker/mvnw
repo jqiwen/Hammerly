@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+MAVEN_VERSION=3.9.9
+MAVEN_HOME="${HOME}/.m2/wrapper/dists/apache-maven-${MAVEN_VERSION}/hammerly/apache-maven-${MAVEN_VERSION}"
+if [ ! -x "${MAVEN_HOME}/bin/mvn" ]; then
+  archive="${TMPDIR:-/tmp}/apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+  url="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}/apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+  mkdir -p "$(dirname "${MAVEN_HOME}")"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "${url}" -o "${archive}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q "${url}" -O "${archive}"
+  else
+    echo "curl or wget is required to bootstrap Maven" >&2
+    exit 1
+  fi
+  tar -xzf "${archive}" -C "$(dirname "${MAVEN_HOME}")"
+fi
+exec "${MAVEN_HOME}/bin/mvn" "-Dmaven.repo.local=${HOME}/.m2/repository" "$@"

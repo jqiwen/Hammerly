@@ -1,0 +1,151 @@
+name: Reusable Cloud Run deployment
+
+on:
+  workflow_call:
+    inputs:
+      service-directory:
+        required: true
+        type: string
+      image-name:
+        required: true
+        type: string
+      cloud-run-service:
+        required: true
+        type: string
+      project-id:
+        required: true
+        type: string
+      region:
+        required: true
+        type: string
+      artifact-repository:
+        required: true
+        type: string
+      workload-identity-provider:
+        required: true
+        type: string
+      deployment-service-account:
+        required: true
+        type: string
+      runtime-service-account:
+        required: true
+        type: string
+      port:
+        required: true
+        type: number
+      health-path:
+        required: true
+        type: string
+      deploy-flags:
+        required: true
+        type: string
+      environment-variables:
+        required: true
+        type: string
+      secret-bindings:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Test, publish, and deploy
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: ${{ inputs.service-directory }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+          cache-dependency-path: ${{ inputs.service-directory }}/pom.xml
+
+      - name: Make Maven wrapper executable
+        run: chmod +x mvnw
+
+      - name: Test
+        env:
+          OPENAI_API_KEY: ""
+          HAMMERLY_KAFKA_ENABLED: "false"
+          SUPABASE_DB_URL: jdbc:postgresql://127.0.0.1:1/ci-unused?sslmode=disable
+          JWT_SECRET: ci-only-secret-that-is-never-used-in-production
+          HAMMERLY_SEED_ENABLED: "false"
+        run: ./mvnw -B -ntp test
+
+      - name: Package
+        run: ./mvnw -B -ntp package -DskipTests
+
+      - name: Authenticate to Google Cloud with OIDC
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ inputs.project-id }}
+          workload_identity_provider: ${{ inputs.workload-identity-provider }}
+          service_account: ${{ inputs.deployment-service-account }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ inputs.project-id }}
+
+      - name: Configure Artifact Registry authentication
+        shell: bash
+        run: gcloud auth configure-docker "${{ inputs.region }}-docker.pkg.dev" --quiet
+
+      - name: Build and push immutable image
+        id: image
+        shell: bash
+        env:
+          GCP_PROJECT_ID: ${{ inputs.project-id }}
+          GCP_REGION: ${{ inputs.region }}
+          GAR_REPOSITORY: ${{ inputs.artifact-repository }}
+          IMAGE_NAME: ${{ inputs.image-name }}
+        run: |
+          set -euo pipefail
+          image_repository="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/${IMAGE_NAME}"
+          immutable_image="${image_repository}:${GITHUB_SHA}"
+          docker build \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --tag "${immutable_image}" \
+            --tag "${image_repository}:latest" \
+            .
+          docker push "${immutable_image}"
+          docker push "${image_repository}:latest"
+          echo "immutable=${immutable_image}" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy immutable image to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ inputs.cloud-run-service }}
+          region: ${{ inputs.region }}
+          image: ${{ steps.image.outputs.immutable }}
+          env_vars: ${{ inputs.environment-variables }}
+          env_vars_update_strategy: overwrite
+          secrets: ${{ inputs.secret-bindings }}
+          secrets_update_strategy: overwrite
+          flags: >-
+            --service-account=${{ inputs.runtime-service-account }}
+            --port=${{ inputs.port }}
+            ${{ inputs.deploy-flags }}
+
+      - name: Verify deployed health endpoint
+        shell: bash
+        env:
+          SERVICE_URL: ${{ steps.deploy.outputs.url }}
+          HEALTH_PATH: ${{ inputs.health-path }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            --connect-timeout 5 --max-time 15 \
+            "${SERVICE_URL}${HEALTH_PATH}"

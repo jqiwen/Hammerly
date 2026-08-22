@@ -54,6 +54,7 @@ hammerly:
     summary-after-messages: ${HAMMERLY_AI_SUMMARY_AFTER_MESSAGES:10}
     summary-request-marker-ttl: ${HAMMERLY_AI_SUMMARY_REQUEST_MARKER_TTL:7d}
   ai:
+    internal-token: ${HAMMERLY_AI_INTERNAL_TOKEN:}
     system-prompt: classpath:prompts/hammerly-support-system.txt
     state:
       conversation:
