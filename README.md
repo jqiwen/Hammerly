@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/image/hammerly-poster.png" alt="Hammerly Banner" width="100%" />
+  <img src="docs/image/hammerly-banner.png" alt="Hammerly Banner" width="100%" />
 </p>
 
 # Hammerly — AI-Powered Auction Platform
@@ -8,7 +8,8 @@ A scalable online auction platform built with React, Spring Boot microservices, 
 
 Hammerly combines a full-featured bidding marketplace with an AI-powered customer support platform designed around microservice isolation, asynchronous processing, distributed caching, observability, and high-concurrency performance.
 
-🌐 **Live Site:** https://hammerly.jqiwen.com
+
+### 🌐 [View Hammerly →]([https://jqiwen.com](https://hammerly.jqiwen.com))
 
 ---
 
