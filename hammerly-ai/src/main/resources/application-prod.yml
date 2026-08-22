@@ -1,0 +1,19 @@
+spring:
+  data:
+    redis:
+      # Production must provide a reachable managed endpoint. The non-routable
+      # fallback keeps Redis failures in the existing graceful-degradation path
+      # instead of accidentally connecting to the Cloud Run container itself.
+      host: ${REDIS_HOST:redis-not-configured.invalid}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL:false}
+  kafka:
+    # Kafka is an optional asynchronous side effect. Production chat remains
+    # available while no managed broker/worker runtime has been selected.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka-not-configured.invalid:9092}
+
+hammerly:
+  kafka:
+    enabled: ${HAMMERLY_KAFKA_ENABLED:false}

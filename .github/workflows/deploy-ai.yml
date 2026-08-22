@@ -83,11 +83,12 @@ jobs:
       health-path: /actuator/health
       deploy-flags: --allow-unauthenticated --memory=1Gi --cpu=1 --min-instances=0 --max-instances=5
       environment-variables: |-
+        SPRING_PROFILES_ACTIVE=prod
         REDIS_HOST=${{ vars.AI_REDIS_HOST }}
         REDIS_PORT=${{ vars.AI_REDIS_PORT }}
         REDIS_SSL=${{ vars.AI_REDIS_SSL }}
         HAMMERLY_KAFKA_ENABLED=${{ vars.HAMMERLY_KAFKA_ENABLED || 'false' }}
-        KAFKA_BOOTSTRAP_SERVERS=${{ vars.KAFKA_BOOTSTRAP_SERVERS || 'localhost:9092' }}
+        KAFKA_BOOTSTRAP_SERVERS=${{ vars.KAFKA_BOOTSTRAP_SERVERS || 'kafka-not-configured.invalid:9092' }}
         HAMMERLY_COMMIT_SHA=${{ github.sha }}
       secret-bindings: |-
         OPENAI_API_KEY=${{ vars.AI_OPENAI_SECRET }}:latest
