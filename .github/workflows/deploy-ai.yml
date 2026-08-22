@@ -38,6 +38,8 @@ jobs:
           AI_REDIS_HOST: ${{ vars.AI_REDIS_HOST }}
           AI_REDIS_PORT: ${{ vars.AI_REDIS_PORT }}
           AI_REDIS_SSL: ${{ vars.AI_REDIS_SSL }}
+          AI_VPC_NETWORK: ${{ vars.AI_VPC_NETWORK }}
+          AI_VPC_SUBNET: ${{ vars.AI_VPC_SUBNET }}
         run: |
           set -euo pipefail
           if [[ "${DEPLOYMENTS_ENABLED}" != "true" ]]; then
@@ -52,7 +54,8 @@ jobs:
             GCP_DEPLOY_SERVICE_ACCOUNT GCP_ARTIFACT_REPOSITORY \
             AI_CLOUD_RUN_SERVICE AI_RUNTIME_SERVICE_ACCOUNT \
             AI_OPENAI_SECRET AI_REDIS_PASSWORD_SECRET AI_INTERNAL_TOKEN_SECRET \
-            AI_REDIS_HOST AI_REDIS_PORT AI_REDIS_SSL; do
+            AI_REDIS_HOST AI_REDIS_PORT AI_REDIS_SSL \
+            AI_VPC_NETWORK AI_VPC_SUBNET; do
             if [[ -z "${!variable_name:-}" ]]; then
               echo "::error::Missing required GitHub variable: ${variable_name}"
               missing=1
@@ -81,7 +84,15 @@ jobs:
       runtime-service-account: ${{ vars.AI_RUNTIME_SERVICE_ACCOUNT }}
       port: 5001
       health-path: /actuator/health
-      deploy-flags: --allow-unauthenticated --memory=1Gi --cpu=1 --min-instances=0 --max-instances=5
+      deploy-flags: >-
+        --allow-unauthenticated
+        --memory=1Gi
+        --cpu=1
+        --min-instances=0
+        --max-instances=5
+        --network=${{ vars.AI_VPC_NETWORK }}
+        --subnet=${{ vars.AI_VPC_SUBNET }}
+        --vpc-egress=private-ranges-only
       environment-variables: |-
         SPRING_PROFILES_ACTIVE=prod
         REDIS_HOST=${{ vars.AI_REDIS_HOST }}
