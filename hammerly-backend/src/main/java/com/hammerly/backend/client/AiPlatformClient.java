@@ -3,6 +3,7 @@ package com.hammerly.backend.client;
 import com.hammerly.backend.dto.AiChatRequest;
 import com.hammerly.backend.dto.AiChatResponse;
 import com.hammerly.backend.dto.AiServiceStatus;
+import com.hammerly.backend.exception.AiRateLimitExceededException;
 import com.hammerly.backend.exception.AiServiceUnavailableException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,7 +12,10 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -40,20 +44,26 @@ public class AiPlatformClient {
         }
     }
 
-    public AiChatResponse chat(AiChatRequest request) {
+    public AiPlatformResponse<AiChatResponse> chat(AiChatRequest request, String userId) {
         try {
-            AiChatResponse response = restClient.post()
+            ResponseEntity<AiChatResponse> response = restClient.post()
                 .uri("/internal/ai/chat")
+                .header(InternalAiHeaders.USER_ID, userId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON)
                 .body(request)
                 .retrieve()
-                .body(AiChatResponse.class);
-            if (response == null || response.answer() == null || response.answer().isBlank()) {
+                .onStatus(status -> status.value() == 429,
+                    (clientRequest, clientResponse) -> {
+                        throw rateLimitExceeded(clientResponse.getHeaders());
+                    })
+                .toEntity(AiChatResponse.class);
+            AiChatResponse body = response.getBody();
+            if (body == null || body.answer() == null || body.answer().isBlank()) {
                 throw new AiServiceUnavailableException("Hammerly AI returned an empty response.");
             }
-            return response;
-        } catch (AiServiceUnavailableException exception) {
+            return new AiPlatformResponse<>(body, rateLimit(response.getHeaders()));
+        } catch (AiRateLimitExceededException | AiServiceUnavailableException exception) {
             throw exception;
         } catch (RestClientException exception) {
             log.warn("Hammerly AI chat call failed ({})", rootCauseName(exception));
@@ -61,10 +71,33 @@ public class AiPlatformClient {
         }
     }
 
-    public void stream(AiChatRequest request, OutputStream browserOutput) {
+    public AiRateLimitStatus acquireStreamPermit(String userId) {
+        try {
+            ResponseEntity<Void> response = restClient.post()
+                .uri("/internal/ai/chat/rate-limit")
+                .header(InternalAiHeaders.USER_ID, userId)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .onStatus(status -> status.value() == 429,
+                    (clientRequest, clientResponse) -> {
+                        throw rateLimitExceeded(clientResponse.getHeaders());
+                    })
+                .toBodilessEntity();
+            return rateLimit(response.getHeaders());
+        } catch (AiRateLimitExceededException exception) {
+            throw exception;
+        } catch (RestClientException exception) {
+            log.warn("Hammerly AI rate-limit permit call failed ({})", rootCauseName(exception));
+            throw new AiServiceUnavailableException(UNAVAILABLE_MESSAGE, exception);
+        }
+    }
+
+    public void stream(AiChatRequest request, String userId, OutputStream browserOutput) {
         try {
             restClient.post()
                 .uri("/internal/ai/chat/stream")
+                .header(InternalAiHeaders.USER_ID, userId)
+                .header(InternalAiHeaders.RATE_LIMIT_PRECHECKED, "true")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .body(request)
@@ -80,6 +113,34 @@ public class AiPlatformClient {
         } catch (RestClientException exception) {
             log.warn("Hammerly AI stream proxy failed ({})", rootCauseName(exception));
             throw new AiServiceUnavailableException(UNAVAILABLE_MESSAGE, exception);
+        }
+    }
+
+    private AiRateLimitExceededException rateLimitExceeded(HttpHeaders headers) {
+        return new AiRateLimitExceededException(rateLimit(headers));
+    }
+
+    private AiRateLimitStatus rateLimit(HttpHeaders headers) {
+        return new AiRateLimitStatus(
+            integerHeader(headers, "X-RateLimit-Limit"),
+            integerHeader(headers, "X-RateLimit-Remaining"),
+            longHeader(headers, "X-RateLimit-Reset")
+        );
+    }
+
+    private int integerHeader(HttpHeaders headers, String name) {
+        try {
+            return Integer.parseInt(Optional.ofNullable(headers.getFirst(name)).orElse("0"));
+        } catch (NumberFormatException exception) {
+            return 0;
+        }
+    }
+
+    private long longHeader(HttpHeaders headers, String name) {
+        try {
+            return Long.parseLong(Optional.ofNullable(headers.getFirst(name)).orElse("0"));
+        } catch (NumberFormatException exception) {
+            return 0;
         }
     }
 

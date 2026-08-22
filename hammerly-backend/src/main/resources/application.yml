@@ -6,6 +6,8 @@ server:
 spring:
   application:
     name: hammerly-core
+  config:
+    import: optional:file:./secrets/application-local.yml
   datasource:
     url: ${SUPABASE_DB_URL}
     driver-class-name: org.postgresql.Driver

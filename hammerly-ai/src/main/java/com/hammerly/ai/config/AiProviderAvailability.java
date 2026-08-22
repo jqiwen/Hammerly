@@ -1,18 +1,16 @@
 package com.hammerly.ai.config;
 
-import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 @Component
 public class AiProviderAvailability {
-    private final Environment environment;
+    private final OpenAiConfigurationState configurationState;
 
-    public AiProviderAvailability(Environment environment) {
-        this.environment = environment;
+    public AiProviderAvailability(OpenAiConfigurationState configurationState) {
+        this.configurationState = configurationState;
     }
 
     public boolean isConfigured() {
-        return StringUtils.hasText(environment.getProperty("OPENAI_API_KEY"));
+        return configurationState.snapshot().apiKeyConfigured();
     }
 }

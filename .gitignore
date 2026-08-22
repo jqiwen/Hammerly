@@ -22,3 +22,10 @@ out/
 node_modules/
 **/node_modules/
 
+
+
+# Local secrets
+**/secrets/
+**/.env
+**/.env.local
+

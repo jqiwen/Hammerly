@@ -17,6 +17,13 @@ export type AiChatMessage = {
 
 let messageSequence = 0;
 
+const createConversationId = () => globalThis.crypto?.randomUUID?.() ??
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+
 const createMessage = (
   role: AiChatMessage['role'],
   content: string,
@@ -39,6 +46,7 @@ export function useAiSupportConversation(initialMessages: AiChatMessage[] = []) 
   const requestInFlight = useRef(false);
   const activeRequest = useRef<AbortController | null>(null);
   const mounted = useRef(true);
+  const conversationId = useRef(createConversationId());
 
   useEffect(() => {
     mounted.current = true;
@@ -87,6 +95,7 @@ export function useAiSupportConversation(initialMessages: AiChatMessage[] = []) 
     void streamAiSupport({
       question: trimmedQuestion,
       history,
+      conversationId: conversationId.current,
       signal: controller.signal,
       onChunk: (chunk) => {
         if (!mounted.current) return;

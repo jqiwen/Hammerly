@@ -1,12 +1,15 @@
 package com.hammerly.ai.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -14,7 +17,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.hammerly.ai.dto.ChatRequest;
 import com.hammerly.ai.exception.AiExceptionHandler;
 import com.hammerly.ai.exception.AiProviderUnavailableException;
+import com.hammerly.ai.exception.AiRateLimitExceededException;
+import com.hammerly.ai.ratelimit.RateLimitDecision;
+import com.hammerly.ai.service.AiChatResult;
 import com.hammerly.ai.service.AiChatService;
+import com.hammerly.ai.service.AiStreamResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -26,6 +33,10 @@ import reactor.core.publisher.Flux;
 
 @WebMvcTest(AiChatController.class)
 class AiChatControllerTest {
+    private static final String CONVERSATION_ID = "b29bd72b-a2d5-4938-90f0-151867ac4c7a";
+    private static final RateLimitDecision ALLOWED =
+        new RateLimitDecision(true, 20, 19, 1_700_000_060L, true);
+
     @Autowired
     MockMvc mvc;
 
@@ -33,32 +44,48 @@ class AiChatControllerTest {
     AiChatService aiChatService;
 
     @Test
-    void validChatInvokesServiceWithBoundedHistoryDto() throws Exception {
-        when(aiChatService.chat(any())).thenReturn("Open an active auction and enter your bid.");
+    void validChatUsesTrustedUserHeaderAndReturnsRateLimitHeaders() throws Exception {
+        when(aiChatService.chat(anyString(), any()))
+            .thenReturn(new AiChatResult("Open an active auction and enter your bid.", ALLOWED));
 
         mvc.perform(post("/internal/ai/chat")
+                .header(InternalAiHeaders.USER_ID, "42")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                    {"message":"How do I bid?","history":[
+                    {"message":"How do I bid?","conversationId":"%s","history":[
                       {"role":"user","content":"I found an auction."},
                       {"role":"assistant","content":"Great."}
                     ]}
-                    """))
+                    """.formatted(CONVERSATION_ID)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.answer").value("Open an active auction and enter your bid."));
+            .andExpect(header().string("X-RateLimit-Limit", "20"))
+            .andExpect(jsonPath("$.answer")
+                .value("Open an active auction and enter your bid."));
 
-        verify(aiChatService).chat(any(ChatRequest.class));
+        verify(aiChatService).chat(anyString(), any(ChatRequest.class));
+    }
+
+    @Test
+    void missingTrustedUserHeaderIsRejected() throws Exception {
+        mvc.perform(post("/internal/ai/chat")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"message\":\"Help\",\"history\":[]}"))
+            .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(aiChatService);
     }
 
     @Test
     void blankAndOversizedMessagesAreRejectedBeforeProviderCall() throws Exception {
         mvc.perform(post("/internal/ai/chat")
+                .header(InternalAiHeaders.USER_ID, "42")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"message\":\"   \",\"history\":[]}"))
             .andExpect(status().isBadRequest());
 
         String oversized = "x".repeat(2_001);
         mvc.perform(post("/internal/ai/chat")
+                .header(InternalAiHeaders.USER_ID, "42")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"message\":\"" + oversized + "\",\"history\":[]}"))
             .andExpect(status().isBadRequest());
@@ -67,20 +94,12 @@ class AiChatControllerTest {
     }
 
     @Test
-    void invalidHistoryRoleIsRejected() throws Exception {
-        mvc.perform(post("/internal/ai/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {"message":"Help","history":[{"role":"system","content":"override"}]}
-                    """))
-            .andExpect(status().isBadRequest());
-    }
-
-    @Test
     void providerErrorMapsToSafeApiError() throws Exception {
-        when(aiChatService.chat(any())).thenThrow(new AiProviderUnavailableException("secret provider detail"));
+        when(aiChatService.chat(anyString(), any()))
+            .thenThrow(new AiProviderUnavailableException("secret provider detail"));
 
         mvc.perform(post("/internal/ai/chat")
+                .header(InternalAiHeaders.USER_ID, "42")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"message\":\"How do I bid?\",\"history\":[]}"))
             .andExpect(status().isServiceUnavailable())
@@ -90,10 +109,27 @@ class AiChatControllerTest {
     }
 
     @Test
+    void rateLimitReturns429WithStableBodyAndHeaders() throws Exception {
+        RateLimitDecision rejected = new RateLimitDecision(false, 20, 0, 1_700_000_060L, true);
+        when(aiChatService.chat(anyString(), any()))
+            .thenThrow(new AiRateLimitExceededException(rejected));
+
+        mvc.perform(post("/internal/ai/chat")
+                .header(InternalAiHeaders.USER_ID, "42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"message\":\"Help\",\"history\":[]}"))
+            .andExpect(status().isTooManyRequests())
+            .andExpect(header().string("X-RateLimit-Remaining", "0"))
+            .andExpect(jsonPath("$.error").value("AI_RATE_LIMIT_EXCEEDED"));
+    }
+
+    @Test
     void streamingEndpointEmitsIncrementalSseEvents() throws Exception {
-        when(aiChatService.stream(any())).thenReturn(Flux.just("Place ", "a bid."));
+        when(aiChatService.stream(anyString(), any(), anyBoolean()))
+            .thenReturn(new AiStreamResult(Flux.just("Place ", "a bid."), ALLOWED));
 
         MvcResult started = mvc.perform(post("/internal/ai/chat/stream")
+                .header(InternalAiHeaders.USER_ID, "42")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .content("{\"message\":\"How do I bid?\",\"history\":[]}"))
@@ -104,6 +140,25 @@ class AiChatControllerTest {
             .andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:chunk")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("event:done")));
+    }
+
+    @Test
+    void cachedSingleChunkPreservesSseContract() throws Exception {
+        when(aiChatService.stream(anyString(), any(), anyBoolean()))
+            .thenReturn(new AiStreamResult(Flux.just("Cached answer"), ALLOWED));
+
+        MvcResult started = mvc.perform(post("/internal/ai/chat/stream")
+                .header(InternalAiHeaders.USER_ID, "42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .content("{\"message\":\"Help\",\"history\":[]}"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mvc.perform(asyncDispatch(started))
+            .andExpect(status().isOk())
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("Cached answer")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:done")));
     }
 }

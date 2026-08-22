@@ -2,6 +2,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 export const AI_SUPPORT_UNAVAILABLE_MESSAGE =
   'Hammerly AI is temporarily unavailable. Please try again.';
+export const AI_SUPPORT_RATE_LIMIT_MESSAGE =
+  'Too many AI requests. Please try again shortly.';
 export const AI_SUPPORT_MAX_MESSAGE_LENGTH = 2_000;
 export const AI_SUPPORT_MAX_HISTORY_MESSAGES = 20;
 
@@ -17,11 +19,18 @@ export class AiSupportUnavailableError extends Error {
   }
 }
 
+export class AiSupportRateLimitError extends Error {
+  constructor(message = AI_SUPPORT_RATE_LIMIT_MESSAGE) {
+    super(message);
+    this.name = 'AiSupportRateLimitError';
+  }
+}
+
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
 
   return {
-    Accept: 'text/event-stream',
+    Accept: 'text/event-stream, application/json',
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
@@ -30,6 +39,7 @@ const getAuthHeaders = () => {
 type StreamAiSupportOptions = {
   question: string;
   history: AiSupportHistoryMessage[];
+  conversationId: string;
   onChunk: (chunk: string) => void;
   signal?: AbortSignal;
 };
@@ -61,6 +71,7 @@ const readEventContent = (data: string) => {
 export const streamAiSupport = async ({
   question,
   history,
+  conversationId,
   onChunk,
   signal,
 }: StreamAiSupportOptions): Promise<void> => {
@@ -79,9 +90,17 @@ export const streamAiSupport = async ({
       body: JSON.stringify({
         message: trimmedQuestion,
         history: history.slice(-AI_SUPPORT_MAX_HISTORY_MESSAGES),
+        conversationId,
       }),
       signal,
     });
+
+    if (response.status === 429) {
+      const payload = await response.json().catch(() => null) as { message?: unknown } | null;
+      throw new AiSupportRateLimitError(
+        typeof payload?.message === 'string' ? payload.message : undefined,
+      );
+    }
 
     if (!response.ok || !response.body) {
       throw new AiSupportUnavailableError();
@@ -126,7 +145,7 @@ export const streamAiSupport = async ({
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw error;
     }
-    if (error instanceof AiSupportUnavailableError || error instanceof Error &&
+    if (error instanceof AiSupportUnavailableError || error instanceof AiSupportRateLimitError || error instanceof Error &&
         error.message.startsWith('Questions must be')) {
       throw error;
     }

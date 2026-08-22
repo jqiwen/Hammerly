@@ -1,11 +1,30 @@
 spring:
   application:
     name: hammerly-ai
+
+  config:
+    import:
+      - optional:file:./secrets/application-local.yml
+      - optional:file:./hammerly-ai/secrets/application-local.yml
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL:false}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
+      timeout: ${REDIS_COMMAND_TIMEOUT:2s}
   ai:
     model:
       embedding: none
       image: none
     openai-sdk:
+      # Supports OPENAI_API_KEY when no higher-precedence SDK property is present.
+      # The fallback keeps older ignored local files using the classic Spring AI
+      # namespace compatible with the OpenAI SDK starter used by this service.
+      api-key: ${OPENAI_API_KEY:${spring.ai.openai.api-key:}}
       timeout: ${OPENAI_TIMEOUT:30s}
       max-retries: ${OPENAI_MAX_RETRIES:0}
       chat:
@@ -18,6 +37,15 @@ spring:
 hammerly:
   ai:
     system-prompt: classpath:prompts/hammerly-support-system.txt
+    state:
+      conversation:
+        max-messages: ${HAMMERLY_AI_CONVERSATION_MAX_MESSAGES:20}
+        ttl: ${HAMMERLY_AI_CONVERSATION_TTL:86400}s
+      response-cache:
+        ttl: ${HAMMERLY_AI_RESPONSE_CACHE_TTL:900}s
+      rate-limit:
+        requests: ${HAMMERLY_AI_RATE_LIMIT_REQUESTS:20}
+        window: ${HAMMERLY_AI_RATE_LIMIT_WINDOW_SECONDS:60}s
 
 server:
   port: ${PORT:5001}
@@ -28,7 +56,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,metrics
   endpoint:
     health:
       show-details: never
+  health:
+    redis:
+      enabled: false

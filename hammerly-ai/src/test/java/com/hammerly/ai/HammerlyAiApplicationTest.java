@@ -10,7 +10,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+    "OPENAI_API_KEY=",
+    "spring.ai.openai-sdk.api-key="
+})
 @AutoConfigureMockMvc
 class HammerlyAiApplicationTest {
     @Autowired
@@ -43,5 +46,11 @@ class HammerlyAiApplicationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("UP"))
             .andExpect(jsonPath("$.components").doesNotExist());
+    }
+
+    @Test
+    void actuatorExposesMetricsEndpoint() throws Exception {
+        mvc.perform(get("/actuator/metrics"))
+            .andExpect(status().isOk());
     }
 }

@@ -24,6 +24,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(503).body(error("Hammerly AI is temporarily unavailable. Please try again."));
     }
 
+    @ExceptionHandler(AiRateLimitExceededException.class)
+    ResponseEntity<Map<String, Object>> handleAiRateLimit(AiRateLimitExceededException exception) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("error", "AI_RATE_LIMIT_EXCEEDED");
+        body.put("message", AiRateLimitExceededException.MESSAGE);
+        return ResponseEntity.status(429)
+            .header("X-RateLimit-Limit", Integer.toString(exception.rateLimit().limit()))
+            .header("X-RateLimit-Remaining", Integer.toString(exception.rateLimit().remaining()))
+            .header("X-RateLimit-Reset", Long.toString(exception.rateLimit().resetEpochSeconds()))
+            .body(body);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException exception) {
         return ResponseEntity.badRequest().body(error("Invalid request"));
