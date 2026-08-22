@@ -9,7 +9,7 @@ A scalable online auction platform built with React, Spring Boot microservices, 
 Hammerly combines a full-featured bidding marketplace with an AI-powered customer support platform designed around microservice isolation, asynchronous processing, distributed caching, observability, and high-concurrency performance.
 
 
-### 🌐 [View Hammerly →]([https://jqiwen.com](https://hammerly.jqiwen.com))
+### 🌐 [View Hammerly →]([https://jqiwen.com](https://hammerly.jqiwen.com)](https://hammerly.jqiwen.com))
 
 ---
 
