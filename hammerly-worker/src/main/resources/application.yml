@@ -34,13 +34,22 @@ hammerly:
     summary-ttl: ${HAMMERLY_WORKER_SUMMARY_TTL:7d}
 
 server:
-  port: ${PORT:5002}
+  # The worker remains a Kafka consumer. Its application connector is disabled;
+  # only the separate management connector below listens for Actuator scrapes.
+  port: -1
 
 management:
+  server:
+    port: ${MANAGEMENT_PORT:${PORT:5002}}
   endpoints:
     web:
       exposure:
-        include: health,metrics
+        include: health,prometheus
   endpoint:
     health:
       show-details: never
+  metrics:
+    distribution:
+      percentiles-histogram:
+        kafka.processing.duration: true
+        rag.search.duration: true

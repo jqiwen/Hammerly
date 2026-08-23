@@ -24,6 +24,7 @@ node_modules/
 load-test/phase5/results/*
 !load-test/phase5/results/*.json
 .phase5-baseline/
+.phase6-smoke/
 
 
 

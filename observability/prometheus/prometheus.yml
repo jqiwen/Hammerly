@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: hammerly-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:5000"]
+
+  - job_name: hammerly-ai
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:5001"]
+
+  - job_name: hammerly-worker
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:5002"]

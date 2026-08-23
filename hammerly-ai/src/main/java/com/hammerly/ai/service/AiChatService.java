@@ -70,7 +70,7 @@ public class AiChatService {
                 prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
                 appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
                     .ifPresent(this::publishEventsSafely);
-                metrics.requestLatency("cache_hit", startedAt);
+                metrics.requestCompleted("success", startedAt);
                 log.info("AI chat cache hit user={} conversation={}", userId, request.conversationId());
                 return new AiChatResult(answer, rateLimit);
             }
@@ -85,17 +85,19 @@ public class AiChatService {
                 responseCache.put(prepared.cacheKey(), answer);
                 appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
                     .ifPresent(this::publishEventsSafely);
-                metrics.requestLatency("llm_request", startedAt);
+                metrics.requestCompleted("success", startedAt);
                 log.info("AI chat completed durationMs={}", elapsedMillis(startedAt));
                 return new AiChatResult(answer, rateLimit);
             } catch (RuntimeException exception) {
-                metrics.requestLatency("llm_error", startedAt);
                 log.warn("AI chat request failed durationMs={} errorType={}",
                     elapsedMillis(startedAt), rootCauseName(exception));
                 throw exception instanceof AiProviderUnavailableException
                     ? exception
                     : new AiProviderUnavailableException("AI provider request failed.", exception);
             }
+        } catch (RuntimeException exception) {
+            metrics.requestCompleted("error", startedAt);
+            throw exception;
         } finally {
             metrics.aiRequestFinished();
         }
@@ -107,74 +109,70 @@ public class AiChatService {
             : acquirePermit(userId);
         long startedAt = System.nanoTime();
         metrics.aiRequestStarted();
-        final PreparedRequest prepared;
         try {
-            prepared = prepare(userId, request);
-        } catch (RuntimeException exception) {
-            metrics.aiRequestFinished();
-            throw exception;
-        }
-        Optional<String> cached = findCached(prepared);
-        if (cached.isPresent()) {
-            String answer = cached.orElseThrow();
-            prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
-            log.info("AI stream cache hit user={} conversation={}", userId, request.conversationId());
+            PreparedRequest prepared = prepare(userId, request);
+            Optional<String> cached = findCached(prepared);
+            if (cached.isPresent()) {
+                String answer = cached.orElseThrow();
+                prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
+                log.info("AI stream cache hit user={} conversation={}", userId, request.conversationId());
+                AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
+                Flux<String> cachedStream = Flux.just(answer)
+                    .doOnComplete(() -> appendExchange(userId, request.conversationId(),
+                        request.message(), answer, prepared).ifPresent(completedTurn::set))
+                    .doFinally(signal -> {
+                        metrics.requestCompleted(requestOutcome(signal), startedAt);
+                        metrics.aiRequestFinished();
+                        if (signal == SignalType.ON_COMPLETE) {
+                            Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
+                        }
+                    });
+                return new AiStreamResult(cachedStream, rateLimit);
+            }
+
+            log.info("AI stream cache miss user={} conversation={} contextMessages={}",
+                userId, request.conversationId(), prepared.context().size());
+            StringBuilder completedResponse = new StringBuilder();
             AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
-            Flux<String> cachedStream = Flux.just(answer)
-                .doOnComplete(() -> appendExchange(userId, request.conversationId(),
-                    request.message(), answer, prepared).ifPresent(completedTurn::set))
+            final Flux<String> chunks;
+            try {
+                chunks = modelClient.stream(prepared.context(), request.message());
+            } catch (RuntimeException exception) {
+                throw exception instanceof AiProviderUnavailableException
+                    ? exception
+                    : new AiProviderUnavailableException("AI provider stream could not start.", exception);
+            }
+
+            Flux<String> observed = chunks
+                .filter(StringUtils::hasLength)
+                .doOnNext(completedResponse::append)
+                .doOnComplete(() -> {
+                    String answer = completedResponse.toString();
+                    if (StringUtils.hasText(answer)) {
+                        responseCache.put(prepared.cacheKey(), answer);
+                        appendExchange(userId, request.conversationId(), request.message(), answer,
+                            prepared).ifPresent(completedTurn::set);
+                    }
+                    log.info("AI stream completed durationMs={}", elapsedMillis(startedAt));
+                })
+                .doOnError(exception -> log.warn("AI stream failed durationMs={} errorType={}",
+                    elapsedMillis(startedAt), rootCauseName(exception)))
                 .doFinally(signal -> {
-                    metrics.requestLatency(
-                        signal == SignalType.ON_COMPLETE ? "cache_hit" : "llm_error", startedAt);
+                    metrics.requestCompleted(requestOutcome(signal), startedAt);
                     metrics.aiRequestFinished();
                     if (signal == SignalType.ON_COMPLETE) {
                         Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
                     }
-                });
-            return new AiStreamResult(cachedStream, rateLimit);
-        }
-
-        log.info("AI stream cache miss user={} conversation={} contextMessages={}",
-            userId, request.conversationId(), prepared.context().size());
-        StringBuilder completedResponse = new StringBuilder();
-        AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
-        final Flux<String> chunks;
-        try {
-            chunks = modelClient.stream(prepared.context(), request.message());
+                })
+                .onErrorMap(exception -> exception instanceof AiProviderUnavailableException
+                    ? exception
+                    : new AiProviderUnavailableException("AI provider stream was interrupted.", exception));
+            return new AiStreamResult(observed, rateLimit);
         } catch (RuntimeException exception) {
-            metrics.requestLatency("llm_error", startedAt);
+            metrics.requestCompleted("error", startedAt);
             metrics.aiRequestFinished();
-            throw exception instanceof AiProviderUnavailableException
-                ? exception
-                : new AiProviderUnavailableException("AI provider stream could not start.", exception);
+            throw exception;
         }
-
-        Flux<String> observed = chunks
-            .filter(StringUtils::hasLength)
-            .doOnNext(completedResponse::append)
-            .doOnComplete(() -> {
-                String answer = completedResponse.toString();
-                if (StringUtils.hasText(answer)) {
-                    responseCache.put(prepared.cacheKey(), answer);
-                    appendExchange(userId, request.conversationId(), request.message(), answer,
-                        prepared).ifPresent(completedTurn::set);
-                }
-                log.info("AI stream completed durationMs={}", elapsedMillis(startedAt));
-            })
-            .doOnError(exception -> log.warn("AI stream failed durationMs={} errorType={}",
-                elapsedMillis(startedAt), rootCauseName(exception)))
-            .doFinally(signal -> {
-                metrics.requestLatency(
-                    signal == SignalType.ON_COMPLETE ? "llm_request" : "llm_error", startedAt);
-                metrics.aiRequestFinished();
-                if (signal == SignalType.ON_COMPLETE) {
-                    Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
-                }
-            })
-            .onErrorMap(exception -> exception instanceof AiProviderUnavailableException
-                ? exception
-                : new AiProviderUnavailableException("AI provider stream was interrupted.", exception));
-        return new AiStreamResult(observed, rateLimit);
     }
 
     public RateLimitDecision acquirePermit(String userId) {
@@ -283,6 +281,14 @@ public class AiChatService {
 
     private long elapsedMillis(long startedAt) {
         return Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+    }
+
+    private String requestOutcome(SignalType signal) {
+        return switch (signal) {
+            case ON_COMPLETE -> "success";
+            case CANCEL -> "cancelled";
+            default -> "error";
+        };
     }
 
     private String rootCauseName(Throwable throwable) {

@@ -65,3 +65,12 @@ springdoc:
     enabled: true
     path: /api-docs
     operations-sorter: method
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never

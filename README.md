@@ -101,27 +101,36 @@ evidence, not a production OpenAI capacity guarantee. See
 [baseline](docs/performance/phase5-baseline.md), and
 [configuration reference](docs/performance/phase5-configuration.md).
 
+## Phase 6 — Prometheus and Grafana observability
+
+Core, AI, and Worker now expose Prometheus scrape endpoints, with a local Prometheus/Grafana stack
+and a provisioned **Hammerly — System Overview** dashboard. The dashboard covers traffic, latency,
+provider resilience, Redis cache behavior, Kafka processing, JVM health, and the future RAG search
+boundary. Prometheus scrapes every five seconds and all three local targets have been validated UP.
+
+Start the application dependencies/services, then run:
+
+```bash
+docker compose -f docker-compose.observability.yml up -d
+```
+
+Open Prometheus at <http://localhost:9090> and Grafana at <http://localhost:3001> (local development
+credentials: `admin` / `admin`). See the [Phase 6 observability guide](docs/observability/phase6.md)
+for architecture, PromQL, dashboard sections, security boundaries, validation, and shutdown steps.
+
 ## Metrics and health
 
-AI exposes `/actuator/health` and `/actuator/metrics` on port 5001. Existing cache, rate-limit, Redis, request, and provider metrics remain, with:
+Core, AI, and Worker expose only `/actuator/health` and `/actuator/prometheus` locally on ports 5000,
+5001, and 5002 respectively. Worker port 5002 is a management-only listener. The production profile
+exposes health only, so metrics are not published on the current public application listeners.
 
-- AI/request/provider counts and latency, including provider first-token latency
-- active and maximum active AI/provider calls
-- provider 429, 5xx, timeout, retry, bulkhead rejection, circuit-open, and state-transition counts
-- `hammerly.kafka.publish.success` tagged by `eventType`
-- `hammerly.kafka.publish.failure` tagged by `eventType`
+Canonical Prometheus metrics include:
 
-The worker exposes the same Actuator endpoints on port 5002 and records:
-
-- `hammerly.worker.event.processed`
-- `hammerly.worker.event.failed`
-- `hammerly.worker.event.retry`
-- `hammerly.worker.event.dlt`
-- `hammerly.worker.event.duplicate`
-- `hammerly.worker.analytics.ai_turn.completed`
-- `hammerly.worker.summary.success`
-- `hammerly.worker.summary.failure`
-- `hammerly.worker.summary.latency`
+- `ai_requests_total` and histogram `ai_request_duration_seconds`
+- `llm_errors_total`, provider first-token latency, retries, 429/5xx/timeouts, bulkhead, and circuit state
+- `redis_cache_hits_total`, `redis_cache_misses_total`, and `active_conversations`
+- histogram `kafka_processing_duration_seconds`, plus bounded worker outcome/retry/DLT metrics
+- histogram `rag_search_duration_seconds` only after a real future RAG search is observed
 
 ## CI/CD pipeline
 
@@ -283,4 +292,5 @@ Phase 4 defines `embedding.requested` and an embedding handler boundary only. Th
 - retrieval, source citation, and prompt grounding
 - RAG evaluation and retrieval caching
 
-Kubernetes, GKE, and Prometheus/Grafana deployment dashboards also remain future infrastructure work.
+Kubernetes/GKE and production hosting for the observability stack on a private scrape network remain
+future infrastructure work; Phase 6 provides the validated local stack and provisioned dashboard.

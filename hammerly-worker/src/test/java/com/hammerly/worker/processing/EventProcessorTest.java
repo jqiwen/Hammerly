@@ -46,7 +46,7 @@ class EventProcessorTest {
         assertEquals(1.0, registry.get("hammerly.worker.analytics.ai_turn.completed")
             .counter().count());
         assertEquals(1.0, registry.get("hammerly.worker.event.processed")
-            .tag("eventType", "message.created").counter().count());
+            .tag("event_type", "message.created").counter().count());
     }
 
     @Test
@@ -58,7 +58,7 @@ class EventProcessorTest {
 
         verify(idempotency, never()).complete(any());
         assertEquals(1.0, registry.get("hammerly.worker.event.duplicate")
-            .tag("eventType", "message.created").counter().count());
+            .tag("event_type", "message.created").counter().count());
     }
 
     @Test

@@ -1,7 +1,9 @@
 package com.hammerly.ai.observability;
 
 import com.hammerly.ai.diagnostic.OpenAiProviderFailure;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.stereotype.Component;
@@ -9,25 +11,29 @@ import org.springframework.stereotype.Component;
 @Component
 public class AiMetrics {
     private final MeterRegistry registry;
-    private final AtomicInteger activeAiRequests = new AtomicInteger();
+    private final Counter aiRequests;
+    private final AtomicInteger activeConversations = new AtomicInteger();
     private final AtomicInteger activeProviderRequests = new AtomicInteger();
-    private final AtomicInteger maxActiveAiRequests = new AtomicInteger();
+    private final AtomicInteger maxActiveConversations = new AtomicInteger();
     private final AtomicInteger maxActiveProviderRequests = new AtomicInteger();
 
     public AiMetrics(MeterRegistry registry) {
         this.registry = registry;
-        registry.gauge("hammerly.ai.requests.active", activeAiRequests);
+        this.aiRequests = Counter.builder("ai.requests")
+            .description("AI requests accepted for processing")
+            .register(registry);
+        registry.gauge("active.conversations", activeConversations);
         registry.gauge("hammerly.ai.provider.active", activeProviderRequests);
-        registry.gauge("hammerly.ai.requests.active.max", maxActiveAiRequests);
+        registry.gauge("hammerly.ai.requests.active.max", maxActiveConversations);
         registry.gauge("hammerly.ai.provider.active.max", maxActiveProviderRequests);
     }
 
     public void cacheHit() {
-        registry.counter("hammerly.ai.cache.hit").increment();
+        registry.counter("redis.cache.hits").increment();
     }
 
     public void cacheMiss() {
-        registry.counter("hammerly.ai.cache.miss").increment();
+        registry.counter("redis.cache.misses").increment();
     }
 
     public void rateLimitAllowed() {
@@ -57,19 +63,23 @@ public class AiMetrics {
         registry.counter("hammerly.ai.redis.error", "component", component).increment();
     }
 
-    public void requestLatency(String outcome, long startedAtNanos) {
-        registry.counter("hammerly.ai.request.count", "outcome", outcome).increment();
-        registry.timer("hammerly.ai.request.latency", "outcome", outcome)
+    public void requestCompleted(String outcome, long startedAtNanos) {
+        Timer.builder("ai.request.duration")
+            .description("AI request duration from acceptance through terminal completion")
+            .tag("outcome", outcome)
+            .publishPercentileHistogram()
+            .register(registry)
             .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
     }
 
     public void aiRequestStarted() {
-        int active = activeAiRequests.incrementAndGet();
-        maxActiveAiRequests.accumulateAndGet(active, Math::max);
+        aiRequests.increment();
+        int active = activeConversations.incrementAndGet();
+        maxActiveConversations.accumulateAndGet(active, Math::max);
     }
 
     public void aiRequestFinished() {
-        activeAiRequests.decrementAndGet();
+        activeConversations.decrementAndGet();
     }
 
     public void providerRequestStarted(String operation) {
@@ -94,7 +104,7 @@ public class AiMetrics {
 
     public void providerFailure(String operation, OpenAiProviderFailure failure,
                                 long startedAtNanos) {
-        registry.counter("hammerly.ai.provider.failure",
+        registry.counter("llm.errors",
             "operation", operation,
             "category", failure.category().tag()).increment();
         providerLatency(operation, "failure", startedAtNanos);
@@ -137,6 +147,18 @@ public class AiMetrics {
         registry.timer("hammerly.ai.provider.latency",
             "operation", operation,
             "outcome", outcome)
+            .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
+    }
+
+    /**
+     * Prepared Phase 6 boundary for future RAG code. It is intentionally never
+     * called by the current application, so no fake observations are emitted.
+     */
+    public void ragSearchCompleted(long startedAtNanos) {
+        Timer.builder("rag.search.duration")
+            .description("RAG search duration")
+            .publishPercentileHistogram()
+            .register(registry)
             .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
     }
 }

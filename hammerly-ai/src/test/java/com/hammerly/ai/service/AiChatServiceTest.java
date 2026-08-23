@@ -42,6 +42,7 @@ import java.net.SocketTimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
 import java.util.Optional;
+import reactor.core.Disposable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -55,6 +56,7 @@ class AiChatServiceTest {
     private AiResponseCache responseCache;
     private AiCacheKeyFactory cacheKeyFactory;
     private AiEventPublisher eventPublisher;
+    private SimpleMeterRegistry registry;
     private AiChatService service;
 
     @BeforeEach
@@ -71,9 +73,10 @@ class AiChatServiceTest {
             .thenReturn(ConversationAppendResult.success(2));
         eventPublisher = mock(AiEventPublisher.class);
         cacheKeyFactory = new AiCacheKeyFactory(new HammerlySystemPrompt("system prompt"));
+        registry = new SimpleMeterRegistry();
         service = new AiChatService(modelClient, conversationStore, responseCache,
             cacheKeyFactory, rateLimiter,
-            new AiMetrics(new SimpleMeterRegistry()),
+            new AiMetrics(registry),
             eventPublisher,
             Clock.fixed(Instant.parse("2026-08-22T12:00:00Z"), ZoneOffset.UTC));
     }
@@ -90,6 +93,9 @@ class AiChatServiceTest {
         verify(responseCache).put(anyString(), org.mockito.ArgumentMatchers.eq("Use the bid form."));
         verify(conversationStore).append(anyString(), anyString(), any());
         verify(eventPublisher).publishSuccessfulTurn(any());
+        assertEquals(1.0, registry.get("ai.requests").counter().count());
+        assertEquals(1L, registry.get("ai.request.duration")
+            .tag("outcome", "success").timer().count());
     }
 
     @Test
@@ -157,6 +163,37 @@ class AiChatServiceTest {
         verify(responseCache, never()).put(anyString(), anyString());
         verify(conversationStore, never()).append(anyString(), anyString(), any());
         verify(eventPublisher, never()).publishSuccessfulTurn(any());
+        assertEquals(1L, registry.get("ai.request.duration")
+            .tag("outcome", "error").timer().count());
+        assertEquals(0.0, registry.get("active.conversations").gauge().value());
+    }
+
+    @Test
+    void cancellingStreamRecordsDurationAndReleasesActiveConversation() {
+        when(responseCache.get(anyString())).thenReturn(Optional.empty());
+        when(modelClient.stream(any(), anyString())).thenReturn(Flux.never());
+
+        Disposable subscription = service.stream("42", request(), false).chunks().subscribe();
+        assertEquals(1.0, registry.get("active.conversations").gauge().value());
+
+        subscription.dispose();
+
+        assertEquals(0.0, registry.get("active.conversations").gauge().value());
+        assertEquals(1L, registry.get("ai.request.duration")
+            .tag("outcome", "cancelled").timer().count());
+    }
+
+    @Test
+    void preparationFailureRecordsErrorAndReleasesActiveConversation() {
+        when(conversationStore.getRecent(anyString(), anyString()))
+            .thenThrow(new IllegalStateException("conversation store unavailable"));
+
+        assertThrows(IllegalStateException.class, () -> service.stream("42", request(), false));
+
+        assertEquals(1.0, registry.get("ai.requests").counter().count());
+        assertEquals(1L, registry.get("ai.request.duration")
+            .tag("outcome", "error").timer().count());
+        assertEquals(0.0, registry.get("active.conversations").gauge().value());
     }
 
     @Test

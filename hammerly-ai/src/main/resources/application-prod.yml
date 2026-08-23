@@ -17,3 +17,11 @@ spring:
 hammerly:
   kafka:
     enabled: ${HAMMERLY_KAFKA_ENABLED:false}
+
+# The application listener is public in the current Cloud Run topology. Keep
+# metrics off it by default; a future private collector path must opt in.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

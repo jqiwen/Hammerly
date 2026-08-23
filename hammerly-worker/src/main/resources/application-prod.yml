@@ -1,0 +1,7 @@
+# Worker metrics must be reached through a private management network in
+# production. Until that exists, expose only the non-sensitive health probe.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

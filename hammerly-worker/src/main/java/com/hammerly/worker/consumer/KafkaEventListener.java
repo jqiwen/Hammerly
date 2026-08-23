@@ -26,15 +26,20 @@ public class KafkaEventListener {
         concurrency = "${HAMMERLY_WORKER_CONCURRENCY:3}"
     )
     public void consume(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
+        long startedAt = System.nanoTime();
         String eventType = EventTypeExtractor.fromJson(record.value());
+        String outcome = "error";
         try {
             processor.process(record.key(), record.value());
             acknowledgment.acknowledge();
+            outcome = "success";
         } catch (RuntimeException exception) {
             metrics.failed(eventType);
             log.warn("Worker event processing failed eventType={} topic={} partition={} offset={} errorType={}",
                 eventType, record.topic(), record.partition(), record.offset(), rootCauseName(exception));
             throw exception;
+        } finally {
+            metrics.processingCompleted(eventType, outcome, startedAt);
         }
     }
 

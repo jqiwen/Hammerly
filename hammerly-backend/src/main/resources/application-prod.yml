@@ -5,3 +5,12 @@ hammerly:
     seed: ${HAMMERLY_SEED_ENABLED:false}
   debug-endpoint:
     enabled: false
+
+# Production health remains available for the platform probe. Prometheus is not
+# exposed on the public application listener unless deployment configuration
+# deliberately overrides this allow-list for a private scrape path.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

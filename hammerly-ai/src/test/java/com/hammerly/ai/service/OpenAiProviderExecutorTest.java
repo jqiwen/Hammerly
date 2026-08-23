@@ -262,7 +262,7 @@ class OpenAiProviderExecutorTest {
             .verifyComplete();
 
         assertThat(attempts).hasValue(2);
-        assertThat(registry.get("hammerly.ai.provider.failure")
+        assertThat(registry.get("llm.errors")
             .tag("category", category).counter().count()).isEqualTo(1.0);
         assertThat(registry.get("hammerly.ai.provider.retry")
             .tag("category", category).counter().count()).isEqualTo(1.0);

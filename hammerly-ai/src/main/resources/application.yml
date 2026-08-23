@@ -104,7 +104,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,metrics
+        include: health,prometheus
   endpoint:
     health:
       show-details: never
@@ -114,5 +114,6 @@ management:
   metrics:
     distribution:
       percentiles-histogram:
-        hammerly.ai.request.latency: true
+        ai.request.duration: true
         hammerly.ai.provider.first_token.latency: true
+        rag.search.duration: true
