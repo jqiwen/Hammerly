@@ -29,6 +29,10 @@ public class OpenAiProviderFailureClassifier {
 
         while (current != null && visited.add(current)) {
             deepest = current;
+            if (current instanceof AiProviderHttpException httpException) {
+                return classifyHttpFailure(httpException.status(), httpException.code(),
+                    safeClassName(httpException));
+            }
             if (current instanceof OpenAIServiceException serviceException) {
                 return classifyServiceException(serviceException);
             }
@@ -78,6 +82,18 @@ public class OpenAiProviderFailureClassifier {
         String classificationCode = ((rawCode == null ? "" : rawCode) + " "
             + (rawType == null ? "" : rawType)).toLowerCase(Locale.ROOT);
 
+        return classifyHttpFailure(status, code, safeClassName(exception), classificationCode);
+    }
+
+    private OpenAiProviderFailure classifyHttpFailure(int status, String code,
+                                                       String exceptionClass) {
+        return classifyHttpFailure(status, safeCode(code), exceptionClass,
+            code == null ? "" : code.toLowerCase(Locale.ROOT));
+    }
+
+    private OpenAiProviderFailure classifyHttpFailure(int status, String code,
+                                                       String exceptionClass,
+                                                       String classificationCode) {
         OpenAiProviderFailure.Category category;
         if (status == 401 || status == 403 || classificationCode.contains("api_key")) {
             category = OpenAiProviderFailure.Category.AUTHENTICATION;
@@ -95,7 +111,7 @@ public class OpenAiProviderFailureClassifier {
             category = OpenAiProviderFailure.Category.UNKNOWN;
         }
 
-        return new OpenAiProviderFailure(category, status, code, safeClassName(exception));
+        return new OpenAiProviderFailure(category, status, code, exceptionClass);
     }
 
     private boolean isTimeout(Throwable failure) {

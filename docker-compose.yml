@@ -37,3 +37,30 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
+
+  k6:
+    image: hammerly-k6-sse:1.2.2
+    build:
+      context: .
+      dockerfile: load-test/phase5/Dockerfile.k6
+    profiles: ["loadtest"]
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace:ro
+      - ./load-test/phase5/results:/results
+    environment:
+      HAMMERLY_LOAD_TEST_BASE_URL: ${HAMMERLY_LOAD_TEST_BASE_URL:-http://host.docker.internal:5000}
+      HAMMERLY_LOAD_TEST_MODE: ${HAMMERLY_LOAD_TEST_MODE:-smoke}
+      HAMMERLY_LOAD_TEST_TOKEN: ${HAMMERLY_LOAD_TEST_TOKEN:-}
+      PROVIDER_MODE: ${PROVIDER_MODE:-}
+      ALLOW_LIVE_PROVIDER_LOAD_TEST: ${ALLOW_LIVE_PROVIDER_LOAD_TEST:-false}
+      PHASE5_SUMMARY_EXPORT: ${PHASE5_SUMMARY_EXPORT:-/results/phase5-summary.json}
+      PHASE5_WARMUP_DURATION: ${PHASE5_WARMUP_DURATION:-30s}
+      PHASE5_RAMP_DURATION: ${PHASE5_RAMP_DURATION:-15s}
+      PHASE5_100_DURATION: ${PHASE5_100_DURATION:-2m}
+      PHASE5_500_DURATION: ${PHASE5_500_DURATION:-2m}
+      PHASE5_1000_DURATION: ${PHASE5_1000_DURATION:-2m}
+      PHASE5_COOLDOWN_DURATION: ${PHASE5_COOLDOWN_DURATION:-30s}
+      PHASE5_THINK_TIME: ${PHASE5_THINK_TIME:-10s}
+      PHASE5_RUN_ID: ${PHASE5_RUN_ID:-0000}
+    entrypoint: ["k6"]

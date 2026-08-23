@@ -62,7 +62,7 @@ public class AiChatController {
         } catch (RuntimeException exception) {
             log.warn("AI stream could not start and returned a safe error event ({})",
                 exception.getClass().getSimpleName());
-            return ResponseEntity.ok(Flux.just(unavailableEvent()));
+            return ResponseEntity.ok(Flux.just(unavailableEvent(exception)));
         }
 
         Flux<ServerSentEvent<ChatStreamEvent>> events = result.chunks()
@@ -73,7 +73,7 @@ public class AiChatController {
             .onErrorResume(exception -> {
                 log.warn("AI stream returned a safe error event ({})",
                     exception.getClass().getSimpleName());
-                return Flux.just(unavailableEvent());
+                return Flux.just(unavailableEvent(exception));
             });
         return ResponseEntity.ok()
             .headers(rateLimitHeaders(result.rateLimit()))
@@ -104,8 +104,8 @@ public class AiChatController {
         return headers;
     }
 
-    private ServerSentEvent<ChatStreamEvent> unavailableEvent() {
-        return ServerSentEvent.builder(new ChatStreamEvent(AiExceptionHandler.UNAVAILABLE_MESSAGE))
+    private ServerSentEvent<ChatStreamEvent> unavailableEvent(Throwable failure) {
+        return ServerSentEvent.builder(new ChatStreamEvent(AiExceptionHandler.safeMessage(failure)))
             .event("error")
             .build();
     }

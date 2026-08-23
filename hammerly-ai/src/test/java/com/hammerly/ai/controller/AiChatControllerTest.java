@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.hammerly.ai.dto.ChatRequest;
 import com.hammerly.ai.exception.AiExceptionHandler;
 import com.hammerly.ai.exception.AiProviderUnavailableException;
+import com.hammerly.ai.exception.AiConcurrencyLimitException;
 import com.hammerly.ai.exception.AiRateLimitExceededException;
 import com.hammerly.ai.ratelimit.RateLimitDecision;
 import com.hammerly.ai.service.AiChatResult;
@@ -160,5 +161,27 @@ class AiChatControllerTest {
             .andExpect(status().isOk())
             .andExpect(content().string(org.hamcrest.Matchers.containsString("Cached answer")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:done")));
+    }
+
+    @Test
+    void bulkheadFailureMapsToSafeBusySseEvent() throws Exception {
+        when(aiChatService.stream(anyString(), any(), anyBoolean()))
+            .thenReturn(new AiStreamResult(Flux.error(new AiConcurrencyLimitException(
+                new IllegalStateException("internal bulkhead detail"))), ALLOWED));
+
+        MvcResult started = mvc.perform(post("/internal/ai/chat/stream")
+                .header(InternalAiHeaders.USER_ID, "42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .content("{\"message\":\"Help\",\"history\":[]}"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mvc.perform(asyncDispatch(started))
+            .andExpect(status().isOk())
+            .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                AiConcurrencyLimitException.MESSAGE)))
+            .andExpect(content().string(org.hamcrest.Matchers.not(
+                org.hamcrest.Matchers.containsString("internal bulkhead detail"))));
     }
 }

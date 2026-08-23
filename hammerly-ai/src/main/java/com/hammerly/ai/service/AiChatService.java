@@ -61,38 +61,43 @@ public class AiChatService {
     public AiChatResult chat(String userId, ChatRequest request) {
         RateLimitDecision rateLimit = acquirePermit(userId);
         long startedAt = System.nanoTime();
-        PreparedRequest prepared = prepare(userId, request);
-        Optional<String> cached = findCached(prepared);
-        if (cached.isPresent()) {
-            String answer = cached.orElseThrow();
-            prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
-            appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
-                .ifPresent(this::publishEventsSafely);
-            metrics.requestLatency("cache_hit", startedAt);
-            log.info("AI chat cache hit user={} conversation={}", userId, request.conversationId());
-            return new AiChatResult(answer, rateLimit);
-        }
-
-        log.info("AI chat cache miss user={} conversation={} contextMessages={}",
-            userId, request.conversationId(), prepared.context().size());
+        metrics.aiRequestStarted();
         try {
-            String answer = modelClient.chat(prepared.context(), request.message());
-            if (!StringUtils.hasText(answer)) {
-                throw new AiProviderUnavailableException("AI provider returned an empty response.");
+            PreparedRequest prepared = prepare(userId, request);
+            Optional<String> cached = findCached(prepared);
+            if (cached.isPresent()) {
+                String answer = cached.orElseThrow();
+                prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
+                appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
+                    .ifPresent(this::publishEventsSafely);
+                metrics.requestLatency("cache_hit", startedAt);
+                log.info("AI chat cache hit user={} conversation={}", userId, request.conversationId());
+                return new AiChatResult(answer, rateLimit);
             }
-            responseCache.put(prepared.cacheKey(), answer);
-            appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
-                .ifPresent(this::publishEventsSafely);
-            metrics.requestLatency("llm_request", startedAt);
-            log.info("AI chat completed durationMs={}", elapsedMillis(startedAt));
-            return new AiChatResult(answer, rateLimit);
-        } catch (RuntimeException exception) {
-            metrics.requestLatency("llm_error", startedAt);
-            log.warn("AI chat request failed durationMs={} errorType={}",
-                elapsedMillis(startedAt), rootCauseName(exception));
-            throw exception instanceof AiProviderUnavailableException
-                ? exception
-                : new AiProviderUnavailableException("AI provider request failed.", exception);
+
+            log.info("AI chat cache miss user={} conversation={} contextMessages={}",
+                userId, request.conversationId(), prepared.context().size());
+            try {
+                String answer = modelClient.chat(prepared.context(), request.message());
+                if (!StringUtils.hasText(answer)) {
+                    throw new AiProviderUnavailableException("AI provider returned an empty response.");
+                }
+                responseCache.put(prepared.cacheKey(), answer);
+                appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
+                    .ifPresent(this::publishEventsSafely);
+                metrics.requestLatency("llm_request", startedAt);
+                log.info("AI chat completed durationMs={}", elapsedMillis(startedAt));
+                return new AiChatResult(answer, rateLimit);
+            } catch (RuntimeException exception) {
+                metrics.requestLatency("llm_error", startedAt);
+                log.warn("AI chat request failed durationMs={} errorType={}",
+                    elapsedMillis(startedAt), rootCauseName(exception));
+                throw exception instanceof AiProviderUnavailableException
+                    ? exception
+                    : new AiProviderUnavailableException("AI provider request failed.", exception);
+            }
+        } finally {
+            metrics.aiRequestFinished();
         }
     }
 
@@ -101,7 +106,14 @@ public class AiChatService {
             ? RateLimitDecision.prechecked()
             : acquirePermit(userId);
         long startedAt = System.nanoTime();
-        PreparedRequest prepared = prepare(userId, request);
+        metrics.aiRequestStarted();
+        final PreparedRequest prepared;
+        try {
+            prepared = prepare(userId, request);
+        } catch (RuntimeException exception) {
+            metrics.aiRequestFinished();
+            throw exception;
+        }
         Optional<String> cached = findCached(prepared);
         if (cached.isPresent()) {
             String answer = cached.orElseThrow();
@@ -114,6 +126,7 @@ public class AiChatService {
                 .doFinally(signal -> {
                     metrics.requestLatency(
                         signal == SignalType.ON_COMPLETE ? "cache_hit" : "llm_error", startedAt);
+                    metrics.aiRequestFinished();
                     if (signal == SignalType.ON_COMPLETE) {
                         Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
                     }
@@ -130,6 +143,7 @@ public class AiChatService {
             chunks = modelClient.stream(prepared.context(), request.message());
         } catch (RuntimeException exception) {
             metrics.requestLatency("llm_error", startedAt);
+            metrics.aiRequestFinished();
             throw exception instanceof AiProviderUnavailableException
                 ? exception
                 : new AiProviderUnavailableException("AI provider stream could not start.", exception);
@@ -152,6 +166,7 @@ public class AiChatService {
             .doFinally(signal -> {
                 metrics.requestLatency(
                     signal == SignalType.ON_COMPLETE ? "llm_request" : "llm_error", startedAt);
+                metrics.aiRequestFinished();
                 if (signal == SignalType.ON_COMPLETE) {
                     Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
                 }

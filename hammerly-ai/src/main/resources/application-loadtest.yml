@@ -1,0 +1,29 @@
+spring:
+  ai:
+    model:
+      chat: none
+
+hammerly:
+  kafka:
+    enabled: false
+  ai:
+    # The simulator still traverses Resilience4j, chat services, SSE, and Redis.
+    loadtest-provider:
+      first-token-delay: ${MOCK_LLM_FIRST_TOKEN_DELAY_MS:100}ms
+      token-interval: ${MOCK_LLM_TOKEN_INTERVAL_MS:20}ms
+      token-count: ${MOCK_LLM_TOKEN_COUNT:8}
+      timeout-delay: ${MOCK_LLM_TIMEOUT_DELAY_MS:30s}
+      rate-limit-rate: ${MOCK_LLM_429_RATE:0.0}
+      server-error-rate: ${MOCK_LLM_5XX_RATE:0.0}
+      timeout-rate: ${MOCK_LLM_TIMEOUT_RATE:0.0}
+      connection-failure-rate: ${MOCK_LLM_CONNECTION_FAILURE_RATE:0.0}
+      after-first-token-failure-rate: ${MOCK_LLM_AFTER_TOKEN_FAILURE_RATE:0.0}
+    state:
+      rate-limit:
+        requests: ${HAMMERLY_AI_RATE_LIMIT_REQUESTS:1000000}
+
+logging:
+  level:
+    com.hammerly.ai.service.AiChatService: ERROR
+    com.hammerly.ai.controller.AiChatController: ERROR
+    com.hammerly.ai.diagnostic.OpenAiProviderFailureDiagnostics: ERROR

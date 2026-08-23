@@ -2,10 +2,15 @@ server:
   port: ${PORT:5000}
   tomcat:
     max-http-form-post-size: 20MB
+    max-connections: ${HAMMERLY_HTTP_MAX_CONNECTIONS:2000}
+    accept-count: ${HAMMERLY_HTTP_ACCEPT_COUNT:1000}
 
 spring:
   application:
     name: hammerly-core
+  threads:
+    virtual:
+      enabled: true
   config:
     import: optional:file:./secrets/application-local.yml
   datasource:
@@ -38,6 +43,9 @@ hammerly:
     connect-timeout: ${HAMMERLY_AI_CONNECT_TIMEOUT:2s}
     read-timeout: ${HAMMERLY_AI_READ_TIMEOUT:45s}
     stream-timeout: ${HAMMERLY_AI_STREAM_TIMEOUT:50s}
+    stream-max-concurrent: ${HAMMERLY_AI_STREAM_MAX_CONCURRENT:1100}
+    connection-pool-max-total: ${HAMMERLY_AI_CONNECTION_POOL_MAX_TOTAL:1100}
+    connection-pool-max-per-route: ${HAMMERLY_AI_CONNECTION_POOL_MAX_PER_ROUTE:1100}
     diagnostic-enabled: ${HAMMERLY_AI_DIAGNOSTIC_ENABLED:true}
     internal-token: ${HAMMERLY_AI_INTERNAL_TOKEN:}
   database:

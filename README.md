@@ -80,10 +80,34 @@ hammerly:conversation:summary:{trustedUserId}:{conversationId}
 
 The Phase 4 summarizer is deterministic and extractive, so background processing makes no paid model call. The versioned job contains the bounded conversation snapshot needed for worker-offline recovery. See [docs/events/README.md](docs/events/README.md) for every topic and wire contract.
 
+## Phase 5 — high concurrency and provider resilience
+
+The production Spring AI/OpenAI SDK call is now protected by named Resilience4j TimeLimiter, Retry,
+CircuitBreaker, and Bulkhead instances. Retry is bounded and status-aware; 429 honors `Retry-After`,
+retryable 5xx/connection/timeout failures back off with jitter, and permanent 4xx failures fail
+immediately. Streaming uses separate first-token and idle timeouts and can retry only before the
+first token, preventing duplicate client output.
+
+Both Java services use bounded virtual-thread MVC streaming executors. Core also uses a bounded,
+pooled HTTP client to AI, while the provider bulkhead remains the smaller paid-resource protection
+boundary. Saturation and open circuits return stable SSE errors without exposing provider details.
+Redis keeps its graceful degradation and Kafka remains outside the synchronous response path.
+
+The reproducible deterministic-provider benchmark passed two-minute holds at 100, 500, and 1,000
+VUs with 13,547 successful streams and zero failures. At 1,000 VUs it completed 57.94 successful
+streams/s, with 127 ms first-event p95 and 7,193 ms full-stream p95. This is local comparative
+evidence, not a production OpenAI capacity guarantee. See
+[the Phase 5 results](docs/performance/phase5-results.md),
+[baseline](docs/performance/phase5-baseline.md), and
+[configuration reference](docs/performance/phase5-configuration.md).
+
 ## Metrics and health
 
 AI exposes `/actuator/health` and `/actuator/metrics` on port 5001. Existing cache, rate-limit, Redis, request, and provider metrics remain, with:
 
+- AI/request/provider counts and latency, including provider first-token latency
+- active and maximum active AI/provider calls
+- provider 429, 5xx, timeout, retry, bulkhead rejection, circuit-open, and state-transition counts
 - `hammerly.kafka.publish.success` tagged by `eventType`
 - `hammerly.kafka.publish.failure` tagged by `eventType`
 
@@ -157,7 +181,7 @@ AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` netw
 
 ## Local configuration
 
-`hammerly-ai/.env.example`, `hammerly-worker/.env.example`, `hammerly-backend/.env.example`, and `hammerly-ui/.env.example` document service-specific values. Important Phase 4 variables are:
+`hammerly-ai/.env.example`, `hammerly-worker/.env.example`, `hammerly-backend/.env.example`, and `hammerly-ui/.env.example` document service-specific values. Important Phase 4/5 variables are:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -170,6 +194,12 @@ AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` netw
 | `HAMMERLY_WORKER_PROCESSING_LOCK_TTL` | `2m` | In-progress event lock TTL |
 | `HAMMERLY_WORKER_SUMMARY_TTL` | `7d` | Separate summary TTL |
 | `HAMMERLY_AI_INTERNAL_TOKEN` | empty locally | Shared Core-to-AI production request token |
+| `HAMMERLY_AI_LLM_MAX_ATTEMPTS` | `3` | Total provider attempts including the first |
+| `HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT` | `12s` | Maximum wait for first streamed token |
+| `HAMMERLY_AI_LLM_IDLE_TIMEOUT` | `15s` | Maximum gap between streamed tokens |
+| `HAMMERLY_AI_LLM_MAX_CONCURRENT_CALLS` | `32` | Production provider bulkhead permits |
+| `HAMMERLY_AI_STREAM_MAX_CONCURRENT` | `1100` | AI MVC streaming executor bound |
+| `HAMMERLY_AI_CONNECTION_POOL_MAX_TOTAL` | `1100` | Core-to-AI outbound pool bound |
 
 ## Run locally
 
@@ -239,7 +269,11 @@ npm run build
 
 Worker tests use embedded KRaft Kafka and do not require Docker, Redis, OpenAI, or paid calls. Core integration tests use Testcontainers PostgreSQL when Docker is available.
 
-## Future Phase 5
+Run the free deterministic SSE smoke/full suite using the commands and safety guard in
+[`load-test/phase5/README.md`](load-test/phase5/README.md). Full mode refuses to run without an
+explicit load-test provider selection.
+
+## Later phases
 
 Phase 4 defines `embedding.requested` and an embedding handler boundary only. The following are deliberately not implemented yet:
 

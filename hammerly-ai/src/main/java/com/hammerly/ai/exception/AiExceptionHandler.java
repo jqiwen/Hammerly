@@ -37,7 +37,8 @@ public class AiExceptionHandler {
     @ExceptionHandler(AiProviderUnavailableException.class)
     ResponseEntity<Map<String, Object>> handleProviderUnavailable(AiProviderUnavailableException exception) {
         log.warn("AI provider request failed ({})", rootCauseName(exception));
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error(UNAVAILABLE_MESSAGE));
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+            .body(error(safeMessage(exception)));
     }
 
     @ExceptionHandler(AiRateLimitExceededException.class)
@@ -72,6 +73,17 @@ public class AiExceptionHandler {
         body.put("error", "AI_RATE_LIMIT_EXCEEDED");
         body.put("message", AiRateLimitExceededException.MESSAGE);
         return body;
+    }
+
+    public static String safeMessage(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof AiConcurrencyLimitException) {
+                return AiConcurrencyLimitException.MESSAGE;
+            }
+            current = current.getCause();
+        }
+        return UNAVAILABLE_MESSAGE;
     }
 
     private String rootCauseName(Throwable throwable) {

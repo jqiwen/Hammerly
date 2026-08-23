@@ -1,6 +1,9 @@
 spring:
   application:
     name: hammerly-ai
+  threads:
+    virtual:
+      enabled: true
 
   config:
     import:
@@ -25,8 +28,9 @@ spring:
       # The fallback keeps older ignored local files using the classic Spring AI
       # namespace compatible with the OpenAI SDK starter used by this service.
       api-key: ${OPENAI_API_KEY:${spring.ai.openai.api-key:}}
-      timeout: ${OPENAI_TIMEOUT:30s}
-      max-retries: ${OPENAI_MAX_RETRIES:0}
+      # Resilience4j owns retries. Fine-grained transport timeouts are built in
+      # OpenAiTransportConfiguration so long valid streams have no total cap.
+      max-retries: 0
       chat:
         options:
           model: ${OPENAI_MODEL:gpt-5-mini}
@@ -56,6 +60,8 @@ hammerly:
   ai:
     internal-token: ${HAMMERLY_AI_INTERNAL_TOKEN:}
     system-prompt: classpath:prompts/hammerly-support-system.txt
+    stream-max-concurrent: ${HAMMERLY_AI_STREAM_MAX_CONCURRENT:1100}
+    stream-timeout: ${HAMMERLY_AI_STREAM_TIMEOUT:5m}
     state:
       conversation:
         max-messages: ${HAMMERLY_AI_CONVERSATION_MAX_MESSAGES:20}
@@ -65,11 +71,34 @@ hammerly:
       rate-limit:
         requests: ${HAMMERLY_AI_RATE_LIMIT_REQUESTS:20}
         window: ${HAMMERLY_AI_RATE_LIMIT_WINDOW_SECONDS:60}s
+    llm:
+      connect-timeout: ${HAMMERLY_AI_LLM_CONNECT_TIMEOUT:3s}
+      request-timeout: ${HAMMERLY_AI_LLM_REQUEST_TIMEOUT:30s}
+      first-token-timeout: ${HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT:12s}
+      idle-timeout: ${HAMMERLY_AI_LLM_IDLE_TIMEOUT:15s}
+      retry:
+        max-attempts: ${HAMMERLY_AI_LLM_MAX_ATTEMPTS:3}
+        initial-backoff: ${HAMMERLY_AI_LLM_RETRY_INITIAL_BACKOFF:250ms}
+        multiplier: ${HAMMERLY_AI_LLM_RETRY_MULTIPLIER:2.0}
+        jitter: ${HAMMERLY_AI_LLM_RETRY_JITTER:0.25}
+      circuit-breaker:
+        sliding-window-size: ${HAMMERLY_AI_LLM_CB_WINDOW_SIZE:20}
+        minimum-calls: ${HAMMERLY_AI_LLM_CB_MINIMUM_CALLS:10}
+        failure-rate-threshold: ${HAMMERLY_AI_LLM_CB_FAILURE_RATE:50}
+        slow-call-rate-threshold: ${HAMMERLY_AI_LLM_CB_SLOW_CALL_RATE:80}
+        slow-call-duration: ${HAMMERLY_AI_LLM_CB_SLOW_CALL_DURATION:10s}
+        open-state-wait: ${HAMMERLY_AI_LLM_CB_OPEN_WAIT:20s}
+        half-open-permitted-calls: ${HAMMERLY_AI_LLM_CB_HALF_OPEN_CALLS:3}
+      bulkhead:
+        max-concurrent-calls: ${HAMMERLY_AI_LLM_MAX_CONCURRENT_CALLS:32}
+        max-wait: ${HAMMERLY_AI_LLM_MAX_WAIT:0ms}
 
 server:
   port: ${PORT:5001}
   tomcat:
     connection-timeout: ${HAMMERLY_AI_CONNECTION_TIMEOUT:10s}
+    max-connections: ${HAMMERLY_AI_HTTP_MAX_CONNECTIONS:2000}
+    accept-count: ${HAMMERLY_AI_HTTP_ACCEPT_COUNT:1000}
 
 management:
   endpoints:
@@ -82,3 +111,8 @@ management:
   health:
     redis:
       enabled: false
+  metrics:
+    distribution:
+      percentiles-histogram:
+        hammerly.ai.request.latency: true
+        hammerly.ai.provider.first_token.latency: true

@@ -75,6 +75,7 @@ jobs:
           changed '^hammerly-backend/' && core=true
           changed '^hammerly-ai/' && ai=true
           changed '^hammerly-worker/' && worker=true
+          changed '^(load-test/phase5/|scripts/load-test/|\.github/workflows/phase5-load-test\.yml$)' && ai=true
           changed '^\.github/workflows/deploy-frontend\.yml$' && ui=true
           changed '^\.github/workflows/deploy-core\.yml$' && core=true
           changed '^\.github/workflows/deploy-ai\.yml$' && ai=true

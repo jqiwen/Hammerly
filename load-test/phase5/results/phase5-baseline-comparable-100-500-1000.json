@@ -1,0 +1,888 @@
+{
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [],
+    "checks": [
+        {
+          "name": "SSE status is 200",
+          "path": "::SSE status is 200",
+          "id": "9bf6d2b7a78e09d4ce71abfe17248195",
+          "passes": 1103,
+          "fails": 14835
+        },
+        {
+          "fails": 14835,
+          "name": "stream emitted first chunk",
+          "path": "::stream emitted first chunk",
+          "id": "6a16cc8ba2c458e2c32e581be4efedea",
+          "passes": 1103
+        },
+        {
+          "path": "::stream completed",
+          "id": "5e0ce28d0f9f01961ed0d15b78b171d8",
+          "passes": 1103,
+          "fails": 14835,
+          "name": "stream completed"
+        }
+      ]
+  },
+  "options": {
+    "summaryTrendStats": [
+      "avg",
+      "min",
+      "med",
+      "p(90)",
+      "p(95)",
+      "p(99)",
+      "max"
+    ],
+    "summaryTimeUnit": "",
+    "noColor": false
+  },
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 494883.938294
+  },
+  "metrics": {
+    "hammerly_sse_stream_duration{concurrency:500}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 4716.750792489636,
+        "min": 7,
+        "med": 24,
+        "p(90)": 29999,
+        "p(95)": 30000,
+        "p(99)": 30936,
+        "max": 50455
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_connection_latency{concurrency:500}": {
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 50449,
+        "avg": 2568.813492063492,
+        "min": 7,
+        "med": 23,
+        "p(90)": 7169.1,
+        "p(95)": 26663.05,
+        "p(99)": 30932.42
+      }
+    },
+    "hammerly_sse_error_events{concurrency:1000}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_sending": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 4718.744783730853,
+        "min": 6.682532,
+        "med": 22.055651500000003,
+        "p(90)": 30000.153182000002,
+        "p(95)": 30000.862036500002,
+        "p(99)": 30840.304825,
+        "max": 50450.454039
+      }
+    },
+    "hammerly_sse_stream_duration{concurrency:1000}": {
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 29999,
+        "p(99)": 30741.21,
+        "max": 48882,
+        "avg": 4220.805710955711,
+        "min": 7,
+        "med": 21,
+        "p(90)": 29998
+      }
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "min": 1000,
+        "max": 1000,
+        "value": 1000
+      }
+    },
+    "hammerly_sse_transport_errors{concurrency:100}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_incomplete_streams{concurrency:100}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 92,
+        "rate": 0.18590217398679196
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "sse_event": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 9927,
+        "rate": 20.05924870833569
+      }
+    },
+    "hammerly_sse_streams_successful{concurrency:500}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 0.5839753074150312,
+        "count": 289
+      },
+      "thresholds": {
+        "count>0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_incomplete_streams": {
+      "values": {
+        "count": 14835,
+        "rate": 29.9767255553702
+      },
+      "type": "counter",
+      "contains": "default"
+    },
+    "vus": {
+      "contains": "default",
+      "values": {
+        "value": 0,
+        "min": 0,
+        "max": 1000
+      },
+      "type": "gauge"
+    },
+    "iteration_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 14577.54517832061,
+        "min": 7514.205607,
+        "med": 10588.856551500001,
+        "p(90)": 38178.8098958,
+        "p(95)": 40376.36396555,
+        "p(99)": 42239.873729650004,
+        "max": 61391.954449
+      }
+    },
+    "hammerly_sse_error_events{concurrency:100}": {
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      },
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      }
+    },
+    "hammerly_sse_transport_errors": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      }
+    },
+    "hammerly_sse_connection_latency{concurrency:100}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 30708.56,
+        "max": 31038,
+        "avg": 21036.796391752578,
+        "min": 12,
+        "med": 26216.5,
+        "p(90)": 29834.8,
+        "p(95)": 30212.85
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_stream_duration{concurrency:1000,outcome:success}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 31041.6,
+        "p(99)": 42244.4999999999,
+        "max": 48882,
+        "avg": 29008.4966442953,
+        "min": 26247,
+        "med": 29076.5,
+        "p(90)": 30977
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_transport_errors{concurrency:1000}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "count": 0
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_streams_successful{concurrency:1000}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 298,
+        "rate": 0.6021613896528696
+      },
+      "thresholds": {
+        "count>0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_stream_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 4719.553143430794,
+        "min": 7,
+        "med": 22,
+        "p(90)": 29998,
+        "p(95)": 29999,
+        "p(99)": 30848.26,
+        "max": 50455
+      }
+    },
+    "hammerly_sse_missing_first_event{concurrency:500}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 3812,
+        "rate": 7.70281616562664
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 30849.73111481,
+        "max": 50456.773663,
+        "avg": 4719.6262872685475,
+        "min": 6.747709,
+        "med": 22.1621135,
+        "p(90)": 30000.1899344,
+        "p(95)": 30000.9141934
+      }
+    },
+    "hammerly_sse_http_status_errors{concurrency:1000}": {
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      },
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 8282,
+        "rate": 16.735237010419684
+      }
+    },
+    "hammerly_sse_stream_duration{concurrency:500,outcome:success}": {
+      "contains": "time",
+      "values": {
+        "p(99)": 46491.00000000002,
+        "max": 50455,
+        "avg": 29017.664359861592,
+        "min": 26264,
+        "med": 28345,
+        "p(90)": 30966.6,
+        "p(95)": 31017.2
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      },
+      "type": "trend"
+    },
+    "hammerly_sse_missing_first_event{concurrency:1000}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 16.735237010419684,
+        "count": 8282
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_incomplete_streams{concurrency:500}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 3812,
+        "rate": 7.70281616562664
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_stream_failure_rate": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.9307943280210816,
+        "passes": 14835,
+        "fails": 1103
+      },
+      "thresholds": {
+        "rate<0.20": {
+          "ok": false
+        }
+      }
+    },
+    "hammerly_sse_streams_successful{concurrency:100}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 296,
+        "rate": 0.598120038044461
+      },
+      "thresholds": {
+        "count>0": {
+          "ok": true
+        }
+      }
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 15844,
+        "rate": 32.0155874418123
+      }
+    },
+    "hammerly_sse_first_event_latency{concurrency:100}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 30260.75,
+        "p(99)": 30719.6,
+        "max": 31038,
+        "avg": 27566.027027027027,
+        "min": 21644,
+        "med": 27589,
+        "p(90)": 29999.5
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_connection_latency": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 50449,
+        "avg": 2522.3794326241136,
+        "min": 7,
+        "med": 22,
+        "p(90)": 7153,
+        "p(95)": 26603.85,
+        "p(99)": 30863
+      }
+    },
+    "hammerly_sse_connection_latency{concurrency:1000}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 20,
+        "p(90)": 39,
+        "p(95)": 11380.099999999999,
+        "p(99)": 30753.04,
+        "max": 48872,
+        "avg": 1638.9088344659572,
+        "min": 7
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_error_events": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "count": 0
+      }
+    },
+    "hammerly_sse_http_status_errors{concurrency:100}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 92,
+        "rate": 0.18590217398679196
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_http_status_errors{status:0}": {
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      },
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "rate": 2.5743409745562276,
+        "count": 1274
+      }
+    },
+    "hammerly_sse_streams_total": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 15938,
+        "rate": 32.2055309674075
+      }
+    },
+    "hammerly_sse_streams_total{concurrency:1000}": {
+      "thresholds": {
+        "count>0": {
+          "ok": true
+        }
+      },
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 8580,
+        "rate": 17.33739840007255
+      }
+    },
+    "hammerly_sse_http_status_errors": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 14835,
+        "rate": 29.9767255553702
+      }
+    },
+    "hammerly_sse_streams_total{concurrency:500}": {
+      "values": {
+        "count": 4101,
+        "rate": 8.28679147304167
+      },
+      "thresholds": {
+        "count>0": {
+          "ok": true
+        }
+      },
+      "type": "counter",
+      "contains": "default"
+    },
+    "hammerly_sse_stream_duration{concurrency:100}": {
+      "values": {
+        "med": 26227.5,
+        "p(90)": 29842.1,
+        "p(95)": 30222.149999999998,
+        "p(99)": 30718.95,
+        "max": 31047,
+        "avg": 21045.7706185567,
+        "min": 12
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time"
+    },
+    "hammerly_sse_http_status_errors{status:undefined}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_transport_errors{concurrency:500}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_http_status_errors{status:500}": {
+      "values": {
+        "count": 13561,
+        "rate": 27.402384580813973
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      },
+      "type": "counter",
+      "contains": "default"
+    },
+    "hammerly_sse_missing_first_event{concurrency:100}": {
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      },
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 92,
+        "rate": 0.18590217398679196
+      }
+    },
+    "data_sent": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 4876748,
+        "rate": 9854.326686801518
+      }
+    },
+    "hammerly_sse_first_event_latency{concurrency:500}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 50449,
+        "avg": 29006.280276816608,
+        "min": 26255,
+        "med": 28327,
+        "p(90)": 30957,
+        "p(95)": 31007.6,
+        "p(99)": 46476.80000000002
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_stream_duration{concurrency:100,outcome:success}": {
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 30011,
+        "p(95)": 30270.5,
+        "p(99)": 30732.5,
+        "max": 31047,
+        "avg": 27577.68918918919,
+        "min": 21657,
+        "med": 27600.5
+      }
+    },
+    "hammerly_sse_stream_failure_rate{concurrency:500}": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.9295293830772983,
+        "passes": 3812,
+        "fails": 289
+      },
+      "thresholds": {
+        "rate<1.0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_http_status_errors{status:503}": {
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      },
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      }
+    },
+    "http_reqs": {
+      "contains": "default",
+      "values": {
+        "rate": 32.2055309674075,
+        "count": 15938
+      },
+      "type": "counter"
+    },
+    "hammerly_sse_streams_failed": {
+      "contains": "default",
+      "values": {
+        "count": 14835,
+        "rate": 29.9767255553702
+      },
+      "type": "counter"
+    },
+    "hammerly_sse_http_status_errors{status:429}": {
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      },
+      "type": "counter"
+    },
+    "hammerly_sse_first_event_latency{concurrency:1000}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 30963.7,
+        "p(95)": 31030.2,
+        "p(99)": 42232.6499999999,
+        "max": 48872,
+        "avg": 28998.426174496642,
+        "min": 26241,
+        "med": 29068
+      },
+      "thresholds": {
+        "p(95)<60000": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_http_status_errors{concurrency:500}": {
+      "contains": "default",
+      "values": {
+        "count": 3812,
+        "rate": 7.70281616562664
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      },
+      "type": "counter"
+    },
+    "hammerly_sse_error_events{concurrency:500}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_first_event_latency": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 28272.17135086129,
+        "min": 8174,
+        "med": 28312,
+        "p(90)": 30939,
+        "p(95)": 31036.199999999997,
+        "p(99)": 41849.160000000076,
+        "max": 50449
+      },
+      "thresholds": {
+        "p(95)<5000": {
+          "ok": false
+        }
+      }
+    },
+    "hammerly_sse_incomplete_streams{concurrency:1000}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 8282,
+        "rate": 16.735237010419684
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_stream_failure_rate{concurrency:1000}": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.9652680652680653,
+        "passes": 8282,
+        "fails": 298
+      },
+      "thresholds": {
+        "rate<1.0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_missing_first_event": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 14835,
+        "rate": 29.9767255553702
+      }
+    },
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.0692056719789183,
+        "passes": 3309,
+        "fails": 44505
+      }
+    },
+    "data_received": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 7811653,
+        "rate": 15784.818207939623
+      }
+    },
+    "hammerly_sse_streams_successful": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1103,
+        "rate": 2.228805412037299
+      }
+    },
+    "hammerly_sse_http_status_errors{status:missing}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 0,
+        "rate": 0
+      },
+      "thresholds": {
+        "count>=0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_streams_total{concurrency:100}": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 388,
+        "rate": 0.784022212031253
+      },
+      "thresholds": {
+        "count>0": {
+          "ok": true
+        }
+      }
+    },
+    "hammerly_sse_stream_failure_rate{concurrency:100}": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "passes": 92,
+        "fails": 296,
+        "rate": 0.23711340206185566
+      },
+      "thresholds": {
+        "rate<1.0": {
+          "ok": true
+        }
+      }
+    }
+  }
+}

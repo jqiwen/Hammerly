@@ -17,7 +17,6 @@ import com.hammerly.ai.cache.AiResponseCache;
 import com.hammerly.ai.cache.RedisAiResponseCache;
 import com.hammerly.ai.config.AiStateProperties;
 import com.hammerly.ai.config.HammerlySystemPrompt;
-import com.hammerly.ai.config.OpenAiConfigurationState;
 import com.hammerly.ai.conversation.ConversationHistory;
 import com.hammerly.ai.conversation.ConversationAppendResult;
 import com.hammerly.ai.conversation.ConversationMessage;
@@ -25,9 +24,6 @@ import com.hammerly.ai.conversation.ConversationStore;
 import com.hammerly.ai.conversation.RedisConversationStore;
 import com.hammerly.ai.dto.ChatRequest;
 import com.hammerly.ai.dto.ChatRole;
-import com.hammerly.ai.diagnostic.OpenAiProviderFailureClassifier;
-import com.hammerly.ai.diagnostic.OpenAiProviderFailureDiagnostics;
-import com.hammerly.ai.diagnostic.OpenAiProviderRetryPolicy;
 import com.hammerly.ai.exception.AiProviderUnavailableException;
 import com.hammerly.ai.event.AiEventPublisher;
 import com.hammerly.ai.observability.AiMetrics;
@@ -49,7 +45,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.mock.env.MockEnvironment;
 import reactor.core.publisher.Flux;
 
 class AiChatServiceTest {
@@ -242,15 +237,6 @@ class AiChatServiceTest {
     }
 
     private OpenAiProviderExecutor providerExecutor(SimpleMeterRegistry registry) {
-        OpenAiProviderFailureClassifier classifier = new OpenAiProviderFailureClassifier();
-        OpenAiConfigurationState configurationState = new OpenAiConfigurationState(
-            new MockEnvironment()
-                .withProperty("spring.ai.openai-sdk.chat.options.model", "gpt-5-mini")
-        );
-        return new OpenAiProviderExecutor(
-            new OpenAiProviderFailureDiagnostics(classifier, configurationState),
-            new OpenAiProviderRetryPolicy(),
-            new AiMetrics(registry)
-        );
+        return ProviderExecutorTestFactory.create(registry);
     }
 }

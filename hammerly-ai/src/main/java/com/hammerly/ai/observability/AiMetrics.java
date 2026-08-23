@@ -3,14 +3,23 @@ package com.hammerly.ai.observability;
 import com.hammerly.ai.diagnostic.OpenAiProviderFailure;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.stereotype.Component;
 
 @Component
 public class AiMetrics {
     private final MeterRegistry registry;
+    private final AtomicInteger activeAiRequests = new AtomicInteger();
+    private final AtomicInteger activeProviderRequests = new AtomicInteger();
+    private final AtomicInteger maxActiveAiRequests = new AtomicInteger();
+    private final AtomicInteger maxActiveProviderRequests = new AtomicInteger();
 
     public AiMetrics(MeterRegistry registry) {
         this.registry = registry;
+        registry.gauge("hammerly.ai.requests.active", activeAiRequests);
+        registry.gauge("hammerly.ai.provider.active", activeProviderRequests);
+        registry.gauge("hammerly.ai.requests.active.max", maxActiveAiRequests);
+        registry.gauge("hammerly.ai.provider.active.max", maxActiveProviderRequests);
     }
 
     public void cacheHit() {
@@ -49,7 +58,32 @@ public class AiMetrics {
     }
 
     public void requestLatency(String outcome, long startedAtNanos) {
+        registry.counter("hammerly.ai.request.count", "outcome", outcome).increment();
         registry.timer("hammerly.ai.request.latency", "outcome", outcome)
+            .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
+    }
+
+    public void aiRequestStarted() {
+        int active = activeAiRequests.incrementAndGet();
+        maxActiveAiRequests.accumulateAndGet(active, Math::max);
+    }
+
+    public void aiRequestFinished() {
+        activeAiRequests.decrementAndGet();
+    }
+
+    public void providerRequestStarted(String operation) {
+        int active = activeProviderRequests.incrementAndGet();
+        maxActiveProviderRequests.accumulateAndGet(active, Math::max);
+        registry.counter("hammerly.ai.provider.request", "operation", operation).increment();
+    }
+
+    public void providerRequestFinished() {
+        activeProviderRequests.decrementAndGet();
+    }
+
+    public void providerFirstToken(String operation, long startedAtNanos) {
+        registry.timer("hammerly.ai.provider.first_token.latency", "operation", operation)
             .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
     }
 
@@ -64,12 +98,31 @@ public class AiMetrics {
             "operation", operation,
             "category", failure.category().tag()).increment();
         providerLatency(operation, "failure", startedAtNanos);
+        switch (failure.category()) {
+            case RATE_LIMIT -> registry.counter("hammerly.ai.provider.http_429").increment();
+            case SERVER_ERROR -> registry.counter("hammerly.ai.provider.http_5xx",
+                "status", failure.status() == null ? "unknown" : failure.status().toString()).increment();
+            case TIMEOUT -> registry.counter("hammerly.ai.provider.timeout").increment();
+            default -> { }
+        }
     }
 
     public void providerRetry(String operation, OpenAiProviderFailure failure) {
         registry.counter("hammerly.ai.provider.retry",
             "operation", operation,
             "category", failure.category().tag()).increment();
+    }
+
+    public void bulkheadRejected() {
+        registry.counter("hammerly.ai.bulkhead.rejected").increment();
+    }
+
+    public void circuitOpenRejected() {
+        registry.counter("hammerly.ai.circuit_open.rejected").increment();
+    }
+
+    public void circuitTransition(String transition) {
+        registry.counter("hammerly.ai.circuit.transition", "transition", transition).increment();
     }
 
     public void kafkaPublishSuccess(String eventType) {

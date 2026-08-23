@@ -9,6 +9,9 @@ public record AiPlatformProperties(
     Duration connectTimeout,
     Duration readTimeout,
     Duration streamTimeout,
+    int streamMaxConcurrent,
+    int connectionPoolMaxTotal,
+    int connectionPoolMaxPerRoute,
     String internalToken
 ) {
 }

@@ -11,11 +11,13 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
 @Component
+@Profile("!loadtest")
 public class SpringAiModelClient implements AiModelClient {
     private static final String PROVIDER_NOT_CONFIGURED =
         "OpenAI API key is not configured for Hammerly AI.";
