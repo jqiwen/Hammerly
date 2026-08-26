@@ -12,7 +12,10 @@ ARG VCS_REF=unknown
 LABEL org.opencontainers.image.source="https://github.com/jqiwen/Hammerly" \
       org.opencontainers.image.revision="${VCS_REF}"
 
-RUN groupadd --system --gid 10001 hammerly \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 hammerly \
     && useradd --system --uid 10001 --gid hammerly --no-create-home --home-dir /app hammerly
 
 WORKDIR /app
@@ -22,5 +25,8 @@ USER 10001:10001
 ENV PORT=5000 \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
 EXPOSE 5000
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=6 \
+    CMD curl --fail --silent --show-error "http://localhost:${PORT}/actuator/health" || exit 1
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

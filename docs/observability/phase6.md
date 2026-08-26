@@ -121,30 +121,23 @@ The provisioned dashboard contains these sections:
 
 ## Startup and shutdown
 
-Start Redis and Kafka, then start Core, AI, and Worker using the normal local-development commands in
-the repository README. For a no-cost smoke run, start AI with `SPRING_PROFILES_ACTIVE=loadtest`; that
-profile selects the deterministic Phase 5 provider. Do not set `ALLOW_LIVE_PROVIDER_LOAD_TEST`.
-
-Start only the observability containers:
+Phase 7 includes Prometheus and Grafana in the unified Compose stack. Copy the root environment
+template, configure the database and JWT values described in the repository README, then start all
+local services. The default AI profile is the deterministic Phase 5 provider and makes no paid call.
 
 ```powershell
-docker compose -f docker-compose.observability.yml up -d
-docker compose -f docker-compose.observability.yml ps
+docker compose up -d --build
+docker compose ps
 ```
 
-Stop them without deleting retained Prometheus/Grafana data:
+Stop the stack without deleting retained data:
 
 ```powershell
-docker compose -f docker-compose.observability.yml down
+docker compose down
 ```
 
-Add `-v` only when the local Prometheus history and Grafana database should intentionally be deleted.
-Stop the host Java processes with `Ctrl+C` in their respective terminals. Redis and Kafka retain their
-existing Phase 4/5 lifecycle:
-
-```powershell
-docker compose stop redis kafka
-```
+Add `-v` only when Redis, Kafka, Prometheus, Grafana, and optional PostgreSQL data should
+intentionally be deleted.
 
 ## Security behavior
 

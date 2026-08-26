@@ -108,10 +108,10 @@ and a provisioned **Hammerly — System Overview** dashboard. The dashboard cove
 provider resilience, Redis cache behavior, Kafka processing, JVM health, and the future RAG search
 boundary. Prometheus scrapes every five seconds and all three local targets have been validated UP.
 
-Start the application dependencies/services, then run:
+Phase 7 merges this configuration into the main local stack. Start it with:
 
 ```bash
-docker compose -f docker-compose.observability.yml up -d
+docker compose up -d --build
 ```
 
 Open Prometheus at <http://localhost:9090> and Grafana at <http://localhost:3001> (local development
@@ -190,7 +190,8 @@ AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` netw
 
 ## Local configuration
 
-`hammerly-ai/.env.example`, `hammerly-worker/.env.example`, `hammerly-backend/.env.example`, and `hammerly-ui/.env.example` document service-specific values. Important Phase 4/5 variables are:
+The root `.env.example` is the fresh-clone Compose template. The service-level examples remain useful
+when running Java processes directly. Important Phase 4/5 variables are:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -210,52 +211,73 @@ AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` netw
 | `HAMMERLY_AI_STREAM_MAX_CONCURRENT` | `1100` | AI MVC streaming executor bound |
 | `HAMMERLY_AI_CONNECTION_POOL_MAX_TOTAL` | `1100` | Core-to-AI outbound pool bound |
 
-## Run locally
+## Run the full local stack
 
-Requirements: Java 21+, Node/npm, Docker, an OpenAI API key for live AI answers, and a PostgreSQL connection for Core.
+The fresh-clone path requires Docker with Compose, a PostgreSQL connection, and a long random local
+JWT secret. Java, Maven, Redis, Kafka, Prometheus, and Grafana do not need to be installed on the host.
+The UI remains a separately started development service on port 3000.
 
-Start Redis and the single-node KRaft broker:
+```bash
+git clone https://github.com/jqiwen/Hammerly.git
+cd Hammerly
+cp .env.example .env
+# Fill SUPABASE_DB_URL and JWT_SECRET in .env.
+docker compose up -d --build
+```
 
-```powershell
-docker compose up -d redis kafka
+The default stack starts `backend`, `ai`, `worker`, `redis`, `kafka`, `prometheus`, and `grafana`.
+AI uses the deterministic, no-cost `loadtest` provider by default while still publishing Kafka events.
+An existing host `OPENAI_API_KEY` is not used for chat unless `.env` explicitly sets
+`HAMMERLY_AI_PROFILE=live` and supplies the key.
+
+Use these lifecycle commands from the repository root:
+
+```bash
 docker compose ps
-docker compose exec redis redis-cli ping
-docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+docker compose logs -f
+docker compose down
+docker compose down -v
 ```
 
-Start each application in a separate PowerShell terminal:
+`docker compose down` preserves named data volumes. The `-v` form intentionally removes local Redis,
+Kafka, Prometheus, Grafana, and optional PostgreSQL data.
 
-```powershell
-cd hammerly-ai
-$env:OPENAI_API_KEY = "your-key"
-.\mvnw.cmd spring-boot:run
+### Optional local PostgreSQL
+
+Supabase is the normal default. To avoid any external database prerequisite, fill these matching
+values in `.env`: `POSTGRES_PASSWORD`, `SUPABASE_DB_USERNAME`, and `SUPABASE_DB_PASSWORD`; set
+`SUPABASE_DB_URL=jdbc:postgresql://postgres:5432/hammerly` and
+`HAMMERLY_DB_SSL_MODE=disable`. Then run:
+
+```bash
+docker compose --profile local-db up -d --build
 ```
 
-```powershell
-cd hammerly-backend
-$env:SUPABASE_DB_URL = "your-jdbc-url"
-$env:JWT_SECRET = "your-development-secret"
-.\mvnw.cmd spring-boot:run
+The profile adds PostgreSQL 17 with a persistent named volume and readiness check. It is not started
+by the default command. It is available to containers at `postgres:5432` and, when host access is
+needed, at `localhost:5433` by default to avoid a typical local PostgreSQL conflict.
+
+Ports default to UI `3000`, Core `5000`, AI `5001`, worker management `5002`, Redis `6379`, Kafka
+`9092`, Grafana `3001`, and Prometheus `9090`. Containers use `redis:6379`, `kafka:29092`,
+`ai:5001`, and the other Docker service names internally; host Kafka clients use `localhost:9092`.
+
+Inspect worker lag and generated summaries with:
+
+```bash
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --group hammerly-worker-v1 --describe
+docker compose exec redis redis-cli GET "hammerly:conversation:summary:{userId}:{conversationId}"
 ```
 
-```powershell
-cd hammerly-worker
-.\mvnw.cmd spring-boot:run
-```
+Prometheus is available at <http://localhost:9090> and Grafana at <http://localhost:3001>. The
+Prometheus datasource and **Hammerly — System Overview** dashboard are provisioned automatically.
+The default Grafana credentials are `admin` / `admin` and are only for local development.
 
-```powershell
+To run the UI separately:
+
+```bash
 cd hammerly-ui
 npm install
 npm run dev
-```
-
-Ports default to UI `3000`, Core `5000`, AI `5001`, worker `5002`, Redis `6379`, and Kafka `9092`.
-
-Inspect worker lag and a generated summary with:
-
-```powershell
-docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group hammerly-worker-v1 --describe
-docker compose exec redis redis-cli GET "hammerly:conversation:summary:{userId}:{conversationId}"
 ```
 
 ## Build and test

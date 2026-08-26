@@ -6,14 +6,14 @@ scrape_configs:
   - job_name: hammerly-backend
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["host.docker.internal:5000"]
+      - targets: ["backend:5000"]
 
   - job_name: hammerly-ai
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["host.docker.internal:5001"]
+      - targets: ["ai:5001"]
 
   - job_name: hammerly-worker
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["host.docker.internal:5002"]
+      - targets: ["worker:5002"]
