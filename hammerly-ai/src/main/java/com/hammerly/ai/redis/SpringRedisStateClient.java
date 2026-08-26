@@ -3,11 +3,14 @@ package com.hammerly.ai.redis;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(prefix = "hammerly.redis", name = "enabled", havingValue = "true",
+    matchIfMissing = true)
 public class SpringRedisStateClient implements RedisStateClient {
     private static final DefaultRedisScript<Long> APPEND_AND_TRIM = new DefaultRedisScript<>("""
         for i = 3, #ARGV do

@@ -76,6 +76,7 @@ jobs:
       - name: Test
         env:
           OPENAI_API_KEY: ""
+          HAMMERLY_REDIS_ENABLED: "false"
           HAMMERLY_KAFKA_ENABLED: "false"
           SUPABASE_DB_URL: jdbc:postgresql://127.0.0.1:1/ci-unused?sslmode=disable
           JWT_SECRET: ci-only-secret-that-is-never-used-in-production

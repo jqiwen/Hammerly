@@ -176,6 +176,7 @@ jobs:
         working-directory: hammerly-ai
     env:
       OPENAI_API_KEY: ""
+      HAMMERLY_REDIS_ENABLED: "false"
       HAMMERLY_KAFKA_ENABLED: "false"
     steps:
       - name: Check out repository

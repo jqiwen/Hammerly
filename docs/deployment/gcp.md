@@ -1,6 +1,8 @@
 # Hammerly Google Cloud deployment setup
 
-The deployment workflows target the existing `hammerly-506214` project in `us-west1`. The live resource names are `hammerly-backend`, `hammerly-ai`, Artifact Registry repository `hammerly`, and Memorystore instance `hammerly-redis`. Production Kafka and a continuous worker runtime are intentionally not provisioned.
+The deployment workflows and demo infrastructure scripts target project `hammerly-506214` in `us-west1`. The standard resource names are `hammerly-backend`, `hammerly-ai`, Artifact Registry repository `hammerly`, Memorystore instance `hammerly-redis`, Kafka VM `hammerly-kafka`, and Cloud Run worker pool `hammerly-worker`.
+
+The normal cost-saving state is demo infrastructure OFF: AI has Redis/Kafka disabled, the worker pool is scaled to zero, and the Kafka VM is stopped. AI remains usable with bounded process-local state. Demo infrastructure ON restores the full Redis/Kafka/worker behavior.
 
 Production secret values stay in Google Secret Manager. GitHub stores only non-secret resource identifiers and secret **names**. GitHub authenticates to Google Cloud with short-lived OIDC credentials through Workload Identity Federation; do not create or upload a service-account JSON key.
 
@@ -9,8 +11,8 @@ Production secret values stay in Google Secret Manager. GitHub stores only non-s
 Run these commands in Google Cloud Shell. Replace the project ID, but keep the other names unless you intentionally configure matching GitHub variables later.
 
 ```bash
-export HAMMERLY_PROJECT_ID="your-gcp-project-id"
-export HAMMERLY_REGION="us-central1"
+export HAMMERLY_PROJECT_ID="hammerly-506214"
+export HAMMERLY_REGION="us-west1"
 export HAMMERLY_GAR_REPOSITORY="hammerly"
 export HAMMERLY_GITHUB_REPOSITORY="jqiwen/Hammerly"
 export HAMMERLY_WIF_POOL="github"
@@ -31,7 +33,9 @@ export HAMMERLY_AI_RUNTIME_EMAIL="${HAMMERLY_AI_RUNTIME_NAME}@${HAMMERLY_PROJECT
 ```bash
 gcloud services enable \
   artifactregistry.googleapis.com \
+  compute.googleapis.com \
   iamcredentials.googleapis.com \
+  redis.googleapis.com \
   run.googleapis.com \
   secretmanager.googleapis.com \
   sts.googleapis.com
@@ -162,9 +166,9 @@ for HAMMERLY_SECRET_NAME in \
 done
 ```
 
-## 6. Configure production Redis before AI deployment
+## 6. Configure optional demo Redis before AI deployment
 
-Production uses a Basic 1 GiB Memorystore instance named `hammerly-redis` with AUTH on the `default` VPC. AI connects through Cloud Run Direct VPC egress; no continuously billed Serverless VPC Access connector is needed. The workflow requires these additional non-secret variables:
+Demo-on mode uses a Basic 1 GiB Memorystore instance named `hammerly-redis` with AUTH on the `default` VPC. AI connects through Cloud Run Direct VPC egress; no continuously billed Serverless VPC Access connector is needed. Demo-off mode does not require a reachable Redis endpoint. The workflow uses these additional non-secret variables:
 
 ```text
 AI_VPC_NETWORK=default
@@ -215,6 +219,7 @@ HAMMERLY_FRONTEND_URL=https://hammerly.jqiwen.com
 HAMMERLY_AI_URL
 HAMMERLY_API_URL
 
+HAMMERLY_REDIS_ENABLED=false
 HAMMERLY_KAFKA_ENABLED=false
 KAFKA_BOOTSTRAP_SERVERS
 ```
@@ -223,7 +228,7 @@ Set the service-account variables to their full email addresses. No GitHub Actio
 
 ## 8. First deployment order
 
-1. Leave `HAMMERLY_KAFKA_ENABLED=false`; there is no production Kafka deployment in this repository.
+1. Leave `HAMMERLY_REDIS_ENABLED=false` and `HAMMERLY_KAFKA_ENABLED=false` for the initial cost-saving deployment.
 2. Set `GCP_DEPLOYMENTS_ENABLED=true`.
 3. Manually run **Deploy AI** from GitHub Actions.
 4. Read the resulting AI Cloud Run URL and set `HAMMERLY_AI_URL` to it.
@@ -234,21 +239,66 @@ Set the service-account variables to their full email addresses. No GitHub Actio
 
 Subsequent relevant pushes to `main` deploy each service independently. Core and AI use stable configured URLs; no generated URL is written into Java or workflow source.
 
-## 9. Worker production decision
+## 9. Demo infrastructure ON/OFF
 
-`deploy-worker.yml` tests the worker and publishes `hammerly-worker:<git-sha>` and `latest` to Artifact Registry. It intentionally does not start a runtime.
+The scripts are idempotent and pass `--project=hammerly-506214` and `--region=us-west1` by default. They never run as part of tests or CI. Preview either workflow with `-WhatIf`.
 
-Before enabling a worker runtime, choose and provision:
+Turn expensive infrastructure OFF without deleting Redis:
+
+```powershell
+.\scripts\gcp\disable-demo-infra.ps1
+```
+
+The OFF workflow performs these operations in order:
+
+1. Sets `HAMMERLY_REDIS_ENABLED=false` and `HAMMERLY_KAFKA_ENABLED=false` on `hammerly-ai`.
+2. Scales the `hammerly-worker` Cloud Run worker pool to zero when it exists.
+3. Stops the `hammerly-kafka` VM when it exists.
+4. Waits for AI health, verifies the deployed status endpoint explicitly reports both flags disabled, and makes a real internal chat request.
+5. Leaves Memorystore intact by default.
+
+Redis deletion is a separate explicit option:
+
+```powershell
+.\scripts\gcp\disable-demo-infra.ps1 -DeleteRedis
+```
+
+The script reaches the delete command only after the live Redis-disabled health and chat checks pass. If the deployed AI revision is too old to report its mode, provider chat fails, or any verification fails, Redis is not deleted. Deletion permanently removes the instance data. Recreating the same Memorystore name can produce a different private IP; the ON script always discovers and reapplies the new address.
+
+Turn full demo infrastructure ON:
+
+```powershell
+.\scripts\gcp\enable-demo-infra.ps1
+```
+
+The ON workflow:
+
+- creates `hammerly-redis` as Basic 1 GiB Redis 7 with AUTH if it is missing, or reuses it when present;
+- stores the current AUTH value as a Secret Manager version without printing or committing it;
+- starts the existing `hammerly-kafka` VM and discovers its private IP;
+- updates AI with the discovered private Redis/Kafka addresses and enables both flags;
+- creates or updates the `hammerly-worker` Cloud Run worker pool from `hammerly-worker:latest`, grants its dedicated runtime identity access only to the Redis password secret, and sets one active instance;
+- verifies Redis and Kafka VM state, worker scaling, AI health, the enabled-mode status, and a real AI chat.
+
+The Kafka VM must already exist and its broker must listen on and advertise its stable private address on port `9092`; the script fails instead of inventing a broker configuration. The worker image must already have been published by `deploy-worker.yml`. Override resource names, the worker image, or worker count with script parameters when the live environment differs.
+
+Cloud Run deployments use the GitHub variables on every new AI revision. Keep `HAMMERLY_REDIS_ENABLED` and `HAMMERLY_KAFKA_ENABLED` aligned with the intended persistent mode, or rerun the ON/OFF script after a deployment. The repository defaults both production variables to `false` when they are absent.
+
+## 10. Worker runtime
+
+`deploy-worker.yml` tests the worker and publishes `hammerly-worker:<git-sha>` and `latest` to Artifact Registry. It intentionally does not start a runtime. `enable-demo-infra.ps1` creates or updates the continuous Cloud Run worker pool only when demo infrastructure is explicitly enabled; `disable-demo-infra.ps1` returns it to zero instances.
+
+Before enabling the demo worker runtime, provision:
 
 - a production Kafka provider and authentication mechanism;
 - Redis reachable from the chosen runtime;
 - networking and secret bindings;
-- a continuous worker target such as a Cloud Run worker pool with instance-based billing, or an existing GKE/VM runtime;
+- the `hammerly-kafka` VM with a private listener reachable from the `default` VPC;
 - an explicit minimum capacity and shutdown/rebalance test.
 
-An ordinary request-driven Cloud Run service with scale-to-zero is not an acceptable Kafka-consumer deployment. Do not enable `HAMMERLY_KAFKA_ENABLED` in AI until the broker and consumer runtime are ready.
+An ordinary request-driven Cloud Run service is not used for the Kafka consumer. Cloud Run worker pools support continuous pull-based processing and can be explicitly set to zero instances in demo-off mode. Do not enable `HAMMERLY_KAFKA_ENABLED` in AI until the broker and worker pool are ready.
 
-## 10. Branch protection
+## 11. Branch protection
 
 After the `CI` workflow has run once, open **GitHub → Settings → Branches → Add branch protection rule**:
 

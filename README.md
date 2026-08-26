@@ -174,15 +174,15 @@ https://hammerly.jqiwen.com (GitHub Pages)
       └── hammerly-redis (Memorystore Basic, private default VPC)
 ```
 
-AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` network and `us-west1` `default` subnet. Redis AUTH is stored in Secret Manager; its host and port are non-secret GitHub variables. Production Kafka remains disabled, so broker or worker availability cannot block real-time chat. The worker image is still built and published for a future managed Kafka/continuous-runtime deployment.
+In full demo mode, AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` network and `us-west1` `default` subnet. Redis AUTH is stored in Secret Manager; its host and port are non-secret settings. In demo-off mode, Redis and Kafka are disabled and AI uses bounded, TTL-aware process-local state, so chat remains available while the worker is scaled to zero and the Kafka VM is stopped. See [`docs/deployment/gcp.md`](docs/deployment/gcp.md) for the idempotent ON/OFF commands.
 
 ### Local development versus production
 
 | Concern | Local development | Production |
 | --- | --- | --- |
 | PostgreSQL | Developer Supabase URL or test container | Secret Manager `SUPABASE_DB_URL` |
-| Redis | Docker Compose on `localhost:6379` | Memorystore `hammerly-redis` through Direct VPC egress |
-| Kafka | Docker Compose on `localhost:9092` | Disabled until a managed broker and continuous worker runtime are selected |
+| Redis | Docker Compose on `localhost:6379`, optional per flag | Memorystore `hammerly-redis` when demo mode is ON; process-local fallback when OFF |
+| Kafka | Docker Compose on `localhost:9092`, optional per flag | Kafka VM and Cloud Run worker pool only while demo mode is ON |
 | OpenAI | Ignored local file or environment variable | Secret Manager `OPENAI_API_KEY` |
 | Core-to-AI trust | Token optional on localhost | Secret Manager shared internal token |
 | GCP authentication | Not required | GitHub OIDC/WIF, no service-account key file |
@@ -195,8 +195,9 @@ when running Java processes directly. Important Phase 4/5 variables are:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `HAMMERLY_REDIS_ENABLED` | `true` in base config, `false` in production/example env | Selects Redis or bounded process-local AI state |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker address used by AI and worker |
-| `HAMMERLY_KAFKA_ENABLED` | `true` | Enables best-effort AI event publication |
+| `HAMMERLY_KAFKA_ENABLED` | `true` in base config, `false` in production/example env | Enables best-effort AI event publication |
 | `HAMMERLY_WORKER_GROUP_ID` | `hammerly-worker-v1` | Durable worker consumer group |
 | `HAMMERLY_WORKER_CONCURRENCY` | `3` | Parallel listener containers |
 | `HAMMERLY_AI_SUMMARY_AFTER_MESSAGES` | `10` | Stored-message summary threshold |
@@ -226,7 +227,9 @@ docker compose up -d --build
 ```
 
 The default stack starts `backend`, `ai`, `worker`, `redis`, `kafka`, `prometheus`, and `grafana`.
-AI uses the deterministic, no-cost `loadtest` provider by default while still publishing Kafka events.
+AI uses the deterministic, no-cost `loadtest` provider by default. The example environment keeps its
+Redis/Kafka integrations off; set both enable flags to `true` when exercising the full local state,
+worker, and Phase 6 metrics path.
 An existing host `OPENAI_API_KEY` is not used for chat unless `.env` explicitly sets
 `HAMMERLY_AI_PROFILE=live` and supplies the key.
 

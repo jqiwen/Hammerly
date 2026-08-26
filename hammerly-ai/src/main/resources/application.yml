@@ -51,6 +51,8 @@ spring:
         delivery.timeout.ms: 2000
 
 hammerly:
+  redis:
+    enabled: ${HAMMERLY_REDIS_ENABLED:true}
   kafka:
     enabled: ${HAMMERLY_KAFKA_ENABLED:true}
     events-topic: ${HAMMERLY_KAFKA_AI_EVENTS_TOPIC:hammerly.ai.events.v1}

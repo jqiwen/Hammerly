@@ -126,9 +126,15 @@ template, configure the database and JWT values described in the repository READ
 local services. The default AI profile is the deterministic Phase 5 provider and makes no paid call.
 
 ```powershell
+$env:HAMMERLY_REDIS_ENABLED = "true"
+$env:HAMMERLY_KAFKA_ENABLED = "true"
 docker compose up -d --build
 docker compose ps
 ```
+
+The root `.env.example` intentionally defaults both flags to `false` for demo-off safety. Phase 6
+Redis and worker/Kafka panels require the explicit `true` overrides above; the metric names and full
+Redis/Kafka implementations are unchanged.
 
 Stop the stack without deleting retained data:
 

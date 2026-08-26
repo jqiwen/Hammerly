@@ -99,6 +99,7 @@ jobs:
         REDIS_HOST=${{ vars.AI_REDIS_HOST }}
         REDIS_PORT=${{ vars.AI_REDIS_PORT }}
         REDIS_SSL=${{ vars.AI_REDIS_SSL }}
+        HAMMERLY_REDIS_ENABLED=${{ vars.HAMMERLY_REDIS_ENABLED || 'false' }}
         HAMMERLY_KAFKA_ENABLED=${{ vars.HAMMERLY_KAFKA_ENABLED || 'false' }}
         KAFKA_BOOTSTRAP_SERVERS=${{ vars.KAFKA_BOOTSTRAP_SERVERS || 'kafka-not-configured.invalid:9092' }}
         HAMMERLY_COMMIT_SHA=${{ github.sha }}

@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hammerly.ai.redis.InMemoryRedisStateClient;
+import com.hammerly.ai.redis.RedisStateClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
@@ -14,7 +16,10 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(properties = {
     "OPENAI_API_KEY=",
-    "spring.ai.openai-sdk.api-key="
+    "spring.ai.openai-sdk.api-key=",
+    "hammerly.redis.enabled=false",
+    "hammerly.kafka.enabled=false",
+    "spring.data.redis.host=redis-must-not-be-contacted.invalid"
 })
 @AutoConfigureMockMvc
 @AutoConfigureObservability
@@ -22,8 +27,13 @@ class HammerlyAiApplicationTest {
     @Autowired
     MockMvc mvc;
 
+    @Autowired
+    RedisStateClient redisStateClient;
+
     @Test
     void contextLoads() {
+        org.junit.jupiter.api.Assertions.assertInstanceOf(
+            InMemoryRedisStateClient.class, redisStateClient);
     }
 
     @Test
@@ -40,7 +50,9 @@ class HammerlyAiApplicationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.service").value("hammerly-ai"))
             .andExpect(jsonPath("$.status").value("ready"))
-            .andExpect(jsonPath("$.aiConfigured").value(false));
+            .andExpect(jsonPath("$.aiConfigured").value(false))
+            .andExpect(jsonPath("$.redisEnabled").value(false))
+            .andExpect(jsonPath("$.kafkaEnabled").value(false));
     }
 
     @Test
