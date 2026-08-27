@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hammerly-backend
+  namespace: hammerly
+spec:
+  type: LoadBalancer

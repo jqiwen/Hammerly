@@ -118,6 +118,21 @@ Open Prometheus at <http://localhost:9090> and Grafana at <http://localhost:3001
 credentials: `admin` / `admin`). See the [Phase 6 observability guide](docs/observability/phase6.md)
 for architecture, PromQL, dashboard sections, security boundaries, validation, and shutdown steps.
 
+## Phase 8 — GKE Autopilot and real autoscaling
+
+Hammerly now has a separate, teardown-friendly GKE deployment target. Kustomize bases deploy two
+Backend replicas, two-to-ten AI replicas behind an `autoscaling/v2` CPU HPA, one Worker, persistent
+in-cluster Redis and Kafka KRaft, Prometheus, Grafana, and kube-state-metrics. Only Backend receives
+an external LoadBalancer; every other service remains cluster-internal. The Cloud Run deployment is
+unchanged.
+
+The `demo` overlay retains real OpenAI behavior. The `loadtest` overlay selects the deterministic
+Phase 5 provider, keeping the 100/500/1,000-VU autoscaling benchmark free of OpenAI calls. Lifecycle,
+secrets, observability, CI/CD, cost controls, exact commands, and production limitations are in the
+[GKE deployment guide](docs/deployment/gke.md). Real measured evidence belongs in the
+[Phase 8 results](docs/performance/phase8-gke-results.md); the phase is not complete until that file
+and `load-test/phase8/results/` contain an actual GKE run.
+
 ## Metrics and health
 
 Core, AI, and Worker expose only `/actuator/health` and `/actuator/prometheus` locally on ports 5000,
@@ -317,5 +332,6 @@ Phase 4 defines `embedding.requested` and an embedding handler boundary only. Th
 - retrieval, source citation, and prompt grounding
 - RAG evaluation and retrieval caching
 
-Kubernetes/GKE and production hosting for the observability stack on a private scrape network remain
-future infrastructure work; Phase 6 provides the validated local stack and provisioned dashboard.
+The GKE demo is intentionally separate from the Cloud Run production path. Prometheus and Grafana
+are private ClusterIP services reached through `kubectl port-forward`; in-cluster Redis and Kafka are
+portfolio demonstration infrastructure rather than a proposed HA production data tier.

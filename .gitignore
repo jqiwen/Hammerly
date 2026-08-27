@@ -11,6 +11,8 @@
 *.db-*
 data/
 **/data/
+!k8s/base/data/
+!k8s/base/data/**
 
 # Build output and dependencies
 target/

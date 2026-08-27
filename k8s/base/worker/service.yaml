@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hammerly-worker
+  namespace: hammerly
+  labels:
+    app.kubernetes.io/name: hammerly-worker
+    app.kubernetes.io/component: worker
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hammerly-worker
+  ports:
+    - name: management
+      port: 5002
+      targetPort: management
+

@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hammerly-ai
+  namespace: hammerly
+spec:
+  template:
+    metadata:
+      labels:
+        hammerly.dev/provider: loadtest
+    spec:
+      containers:
+        - name: ai
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: loadtest
+            - name: MOCK_LLM_FIRST_TOKEN_DELAY_MS
+              value: "100"
+            - name: MOCK_LLM_TOKEN_INTERVAL_MS
+              value: "250"
+            - name: MOCK_LLM_TOKEN_COUNT
+              value: "8"
+            - name: HAMMERLY_AI_LLM_MAX_CONCURRENT_CALLS
+              value: "512"
+            - name: HAMMERLY_AI_STREAM_MAX_CONCURRENT
+              value: "1100"
+            - name: HAMMERLY_AI_HTTP_MAX_CONNECTIONS
+              value: "2000"
+            - name: HAMMERLY_AI_HTTP_ACCEPT_COUNT
+              value: "1000"
+            - name: HAMMERLY_AI_RATE_LIMIT_REQUESTS
+              value: "1000000"
+

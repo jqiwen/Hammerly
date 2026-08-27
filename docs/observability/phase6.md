@@ -118,6 +118,8 @@ The provisioned dashboard contains these sections:
 - Kafka Worker: processing rate and P50/P95/P99, errors, retries, DLT, and available client lag
 - JVM: heap, process CPU, live threads, and GC pause
 - RAG: future search duration, with No data expected in Phase 6
+- Kubernetes / Autoscaling: Phase 8 AI current/desired replicas, CPU target,
+  pod CPU/memory, restarts, and readiness (No data in the local Compose stack)
 
 ## Startup and shutdown
 

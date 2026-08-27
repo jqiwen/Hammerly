@@ -1,0 +1,170 @@
+name: Deploy GKE demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      overlay:
+        description: Kubernetes environment
+        required: true
+        default: loadtest
+        type: choice
+        options: [demo, loadtest]
+      confirm_deterministic_loadtest:
+        description: Confirm the loadtest overlay must use the deterministic provider
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-hammerly-gke
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require GCP OIDC variables
+        shell: bash
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+          OVERLAY: ${{ inputs.overlay }}
+          CONFIRMED: ${{ inputs.confirm_deterministic_loadtest }}
+        run: |
+          set -euo pipefail
+          for variable_name in GCP_PROJECT_ID GCP_REGION GCP_WORKLOAD_IDENTITY_PROVIDER GCP_DEPLOY_SERVICE_ACCOUNT GCP_ARTIFACT_REPOSITORY; do
+            if [[ -z "${!variable_name:-}" ]]; then
+              echo "::error::Missing required GitHub variable: ${variable_name}"
+              exit 1
+            fi
+          done
+          if [[ "${OVERLAY}" == "loadtest" && "${CONFIRMED}" != "true" ]]; then
+            echo "::error::The loadtest deployment requires deterministic-provider confirmation."
+            exit 1
+          fi
+
+  test:
+    name: Test ${{ matrix.service.name }}
+    needs: configuration
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: Core
+            directory: hammerly-backend
+          - name: AI
+            directory: hammerly-ai
+          - name: Worker
+            directory: hammerly-worker
+    defaults:
+      run:
+        working-directory: ${{ matrix.service.directory }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+          cache-dependency-path: ${{ matrix.service.directory }}/pom.xml
+
+      - name: Test
+        env:
+          OPENAI_API_KEY: ""
+          HAMMERLY_REDIS_ENABLED: "false"
+          HAMMERLY_KAFKA_ENABLED: "false"
+          SUPABASE_DB_URL: jdbc:postgresql://127.0.0.1:1/ci-unused?sslmode=disable
+          JWT_SECRET: ci-only-secret-that-is-never-used-in-production
+          HAMMERLY_SEED_ENABLED: "false"
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp test
+
+  deploy:
+    name: Build immutable images and deploy
+    needs: test
+    runs-on: ubuntu-latest
+    environment: gke-demo
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+      GKE_CLUSTER: ${{ vars.GCP_GKE_CLUSTER || 'hammerly-gke' }}
+      OVERLAY: ${{ inputs.overlay }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Authenticate to Google Cloud with OIDC
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          install_components: gke-gcloud-auth-plugin
+
+      - name: Configure Artifact Registry
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push SHA-tagged images
+        shell: bash
+        run: |
+          set -euo pipefail
+          registry="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GCP_ARTIFACT_REPOSITORY}"
+          while IFS='|' read -r directory image_name; do
+            image="${registry}/${image_name}:${GITHUB_SHA}"
+            docker build --build-arg "VCS_REF=${GITHUB_SHA}" --tag "${image}" "${directory}"
+            docker push "${image}"
+          done <<'IMAGES'
+          hammerly-backend|hammerly-core
+          hammerly-ai|hammerly-ai
+          hammerly-worker|hammerly-worker
+          IMAGES
+
+      - name: Deploy selected Kustomize overlay
+        shell: pwsh
+        run: >-
+          ./scripts/gcp/deploy-gke-demo.ps1
+          -Overlay "${env:OVERLAY}"
+          -ProjectId "${env:GCP_PROJECT_ID}"
+          -Region "${env:GCP_REGION}"
+          -ClusterName "${env:GKE_CLUSTER}"
+          -GitSha "${env:GITHUB_SHA}"
+          -WorkerGitSha "${env:GITHUB_SHA}"
+
+      - name: Verify public Backend health
+        shell: bash
+        run: |
+          set -euo pipefail
+          address=""
+          for attempt in $(seq 1 60); do
+            address="$(kubectl get service hammerly-backend -n hammerly -o jsonpath='{.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}')"
+            [[ -n "${address}" ]] && break
+            sleep 5
+          done
+          [[ -n "${address}" ]]
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors "http://${address}/actuator/health"
+
+      - name: Capture deployment status
+        if: always()
+        run: |
+          kubectl get deployments,statefulsets,pods,services,hpa -n hammerly -o wide
+          kubectl top pods -n hammerly || true
+

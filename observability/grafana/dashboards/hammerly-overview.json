@@ -206,17 +206,59 @@
         { "editorMode": "code", "expr": "histogram_quantile(0.99, sum by (le) (rate(rag_search_duration_seconds_bucket[$__rate_interval]))) and on() (sum(rag_search_duration_seconds_count) > 0)", "legendFormat": "P99", "range": true, "refId": "C" }
       ],
       "title": "RAG Search Duration", "type": "timeseries"
+    },
+
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 62 }, "id": 35, "panels": [], "title": "Kubernetes / Autoscaling", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 63 }, "id": 36, "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "editorMode": "code", "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"hammerly\",horizontalpodautoscaler=\"hammerly-ai\"}", "legendFormat": "current", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"hammerly\",horizontalpodautoscaler=\"hammerly-ai\"}", "legendFormat": "desired", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"hammerly\",horizontalpodautoscaler=\"hammerly-ai\"}", "legendFormat": "min", "range": true, "refId": "C" },
+        { "editorMode": "code", "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"hammerly\",horizontalpodautoscaler=\"hammerly-ai\"}", "legendFormat": "max", "range": true, "refId": "D" }
+      ], "title": "AI Current / Desired Replicas", "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 63 }, "id": 37, "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "editorMode": "code", "expr": "100 * sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"hammerly\",pod=~\"hammerly-ai-.*\",container=\"ai\"}[$__rate_interval])) / clamp_min(sum by (pod) (kube_pod_container_resource_requests{namespace=\"hammerly\",pod=~\"hammerly-ai-.*\",container=\"ai\",resource=\"cpu\"}), 0.001)", "legendFormat": "{{pod}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "vector(60)", "legendFormat": "HPA target", "range": true, "refId": "B" }
+      ], "title": "AI Pod CPU / HPA Target", "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "min": 0, "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 63 }, "id": 38, "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"hammerly\",pod=~\"hammerly-ai-.*\",container=\"ai\"})", "legendFormat": "{{pod}}", "range": true, "refId": "A" }],
+      "title": "AI Pod Memory", "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 71 }, "id": 39, "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"hammerly\"}[$__rate_interval]))", "legendFormat": "restarts {{pod}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum by (pod) (kube_pod_status_ready{namespace=\"hammerly\",condition=\"true\"})", "legendFormat": "ready {{pod}}", "range": true, "refId": "B" }
+      ], "title": "Pod Restarts / Readiness", "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" }, "fieldConfig": { "defaults": { "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 71 }, "id": 40, "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "editorMode": "code", "expr": "kube_horizontalpodautoscaler_status_current_metric{namespace=\"hammerly\",horizontalpodautoscaler=\"hammerly-ai\",metric_name=\"cpu\",metric_target_type=\"utilization\"}", "legendFormat": "current", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "kube_horizontalpodautoscaler_spec_target_metric{namespace=\"hammerly\",horizontalpodautoscaler=\"hammerly-ai\",metric_name=\"cpu\",metric_target_type=\"utilization\"}", "legendFormat": "target", "range": true, "refId": "B" }
+      ], "title": "HPA CPU Utilization", "type": "timeseries"
     }
   ],
   "refresh": "5s",
   "schemaVersion": 41,
-  "tags": ["hammerly", "phase6", "prometheus"],
+  "tags": ["hammerly", "phase6", "phase8", "prometheus", "kubernetes"],
   "templating": { "list": [] },
   "time": { "from": "now-30m", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
   "title": "Hammerly — System Overview",
   "uid": "hammerly-system-overview",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
