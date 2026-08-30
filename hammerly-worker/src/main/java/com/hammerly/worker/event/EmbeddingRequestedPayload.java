@@ -1,8 +1,6 @@
 package com.hammerly.worker.event;
 
-public record EmbeddingRequestedPayload(
-    String sourceType,
-    String sourceId,
-    String content
-) {
+import java.util.UUID;
+
+public record EmbeddingRequestedPayload(UUID documentId) {
 }

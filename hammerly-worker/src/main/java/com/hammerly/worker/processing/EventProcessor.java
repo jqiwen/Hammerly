@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hammerly.worker.event.ConversationSummaryRequestedPayload;
 import com.hammerly.worker.event.EventEnvelope;
 import com.hammerly.worker.event.MessageCreatedPayload;
+import com.hammerly.worker.event.EmbeddingRequestedPayload;
+import com.hammerly.worker.embedding.EmbeddingJobHandler;
 import com.hammerly.worker.idempotency.IdempotencyStore;
 import com.hammerly.worker.idempotency.ProcessingClaim;
 import com.hammerly.worker.observability.WorkerMetrics;
@@ -18,13 +20,16 @@ public class EventProcessor {
     private final IdempotencyStore idempotencyStore;
     private final ConversationSummaryHandler summaryHandler;
     private final WorkerMetrics metrics;
+    private final EmbeddingJobHandler embeddingHandler;
 
     public EventProcessor(ObjectMapper objectMapper, IdempotencyStore idempotencyStore,
-                          ConversationSummaryHandler summaryHandler, WorkerMetrics metrics) {
+                          ConversationSummaryHandler summaryHandler, WorkerMetrics metrics,
+                          EmbeddingJobHandler embeddingHandler) {
         this.objectMapper = objectMapper;
         this.idempotencyStore = idempotencyStore;
         this.summaryHandler = summaryHandler;
         this.metrics = metrics;
+        this.embeddingHandler = embeddingHandler;
     }
 
     public void process(String partitionKey, String json) {
@@ -65,11 +70,15 @@ public class EventProcessor {
         if (event.eventId() == null || event.eventVersion() != 1
                 || event.occurredAt() == null || event.correlationId() == null
                 || isBlank(event.eventType()) || isBlank(event.producer())
-                || isBlank(event.userId()) || isBlank(event.conversationId())
                 || event.payload() == null) {
             throw new IllegalArgumentException("Event envelope is incomplete or unsupported");
         }
-        if (!Objects.equals(partitionKey, event.conversationId())) {
+        if ("embedding.requested".equals(event.eventType())) {
+            if (event.aggregateId() == null || !Objects.equals(partitionKey, event.aggregateId().toString())) {
+                throw new IllegalArgumentException("Knowledge event key must equal aggregateId");
+            }
+        } else if (isBlank(event.userId()) || isBlank(event.conversationId())
+                || !Objects.equals(partitionKey, event.conversationId())) {
             throw new IllegalArgumentException("Conversation event key must equal conversationId");
         }
     }
@@ -79,7 +88,9 @@ public class EventProcessor {
             case "message.created" -> processMessage(event);
             case "conversation.summary.requested" -> summaryHandler.handle(event,
                 convert(event, ConversationSummaryRequestedPayload.class));
-            case "conversation.completed", "embedding.requested" ->
+            case "embedding.requested" -> embeddingHandler.handle(event,
+                convert(event, EmbeddingRequestedPayload.class));
+            case "conversation.completed" ->
                 throw new UnsupportedEventTypeException(
                     "No Phase 4 handler is enabled for " + event.eventType());
             default -> throw new UnsupportedEventTypeException(

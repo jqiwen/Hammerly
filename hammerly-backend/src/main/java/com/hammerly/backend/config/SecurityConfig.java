@@ -26,6 +26,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http,
                                             JwtAuthenticationFilter jwtFilter,
+                                            InternalKnowledgeTokenFilter knowledgeTokenFilter,
                                             ObjectMapper objectMapper) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
@@ -53,6 +54,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PATCH, "/api/auctions/end/*").authenticated()
                 .anyRequest().permitAll())
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(knowledgeTokenFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 }

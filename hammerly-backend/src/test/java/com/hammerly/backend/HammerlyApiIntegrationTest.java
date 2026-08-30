@@ -35,13 +35,17 @@ import org.testcontainers.junit.jupiter.Testcontainers;
     "hammerly.database.seed=true",
     "hammerly.debug-endpoint.enabled=true",
     "spring.datasource.hikari.data-source-properties.sslmode=disable",
+    "hammerly.marketplace-cache.enabled=false",
+    "hammerly.kafka.enabled=false",
     "jwt.secret=test-secret-compatible-with-node-jsonwebtoken"
 })
 @AutoConfigureMockMvc
 @Testcontainers(disabledWithoutDocker = true)
 class HammerlyApiIntegrationTest {
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
+        org.testcontainers.utility.DockerImageName.parse("pgvector/pgvector:pg16")
+            .asCompatibleSubstituteFor("postgres"));
 
     @DynamicPropertySource
     static void postgresProperties(DynamicPropertyRegistry registry) {

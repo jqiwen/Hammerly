@@ -11,20 +11,27 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class JwtService {
+    private static final String ISSUER = "hammerly-core";
+    private static final String AUDIENCE = "hammerly-web";
     private final Algorithm algorithm;
     private final JWTVerifier verifier;
     private final long expirationMs;
 
     public JwtService(@Value("${jwt.secret}") String secret,
                       @Value("${jwt.expiration-ms}") long expirationMs) {
+        if (secret == null || secret.length() < 32) {
+            throw new IllegalArgumentException("JWT_SECRET must contain at least 32 characters");
+        }
         this.algorithm = Algorithm.HMAC256(secret);
-        this.verifier = JWT.require(algorithm).build();
+        this.verifier = JWT.require(algorithm).withIssuer(ISSUER).withAudience(AUDIENCE).build();
         this.expirationMs = expirationMs;
     }
 
     public String generateToken(long userId, String email) {
         Instant now = Instant.now();
         return JWT.create()
+            .withIssuer(ISSUER)
+            .withAudience(AUDIENCE)
             .withClaim("userId", userId)
             .withClaim("email", email)
             .withIssuedAt(Date.from(now))

@@ -1,4 +1,5 @@
 hammerly:
+  internal-token-required: true
   ai:
     diagnostic-enabled: false
   database:

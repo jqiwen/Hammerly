@@ -25,7 +25,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String header = request.getHeader("Authorization");
         if (header != null && !header.isBlank()) {
-            String token = header.startsWith("Bearer ") ? header.substring(7) : header;
+            if (!header.startsWith("Bearer ") || header.length() == 7) {
+                request.setAttribute(JWT_ERROR_ATTRIBUTE, "Invalid authorization header");
+                filterChain.doFilter(request, response);
+                return;
+            }
+            String token = header.substring(7);
             try {
                 AuthenticatedUser principal = jwtService.verify(token);
                 UsernamePasswordAuthenticationToken authentication =

@@ -24,6 +24,18 @@ spring:
         enabled: ${REDIS_SSL:false}
       connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
       timeout: ${REDIS_COMMAND_TIMEOUT:2s}
+  datasource:
+    url: ${SUPABASE_DB_URL:jdbc:postgresql://localhost:5433/hammerly}
+    username: ${SUPABASE_DB_USERNAME:hammerly}
+    password: ${SUPABASE_DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      schema: hammerly
+      maximum-pool-size: ${HAMMERLY_WORKER_DB_POOL_SIZE:4}
+      data-source-properties:
+        sslmode: ${HAMMERLY_DB_SSL_MODE:disable}
+  flyway:
+    enabled: false
 
 hammerly:
   worker:
@@ -32,6 +44,15 @@ hammerly:
     processed-event-ttl: ${HAMMERLY_WORKER_PROCESSED_EVENT_TTL:7d}
     processing-lock-ttl: ${HAMMERLY_WORKER_PROCESSING_LOCK_TTL:2m}
     summary-ttl: ${HAMMERLY_WORKER_SUMMARY_TTL:7d}
+  knowledge:
+    chunk-tokens: ${HAMMERLY_RAG_CHUNK_TOKENS:650}
+    chunk-overlap-tokens: ${HAMMERLY_RAG_CHUNK_OVERLAP_TOKENS:100}
+    embedding-provider: ${HAMMERLY_AI_EMBEDDING_PROVIDER:deterministic}
+    embedding-model: ${HAMMERLY_AI_EMBEDDING_MODEL:text-embedding-3-small}
+    embedding-dimension: ${HAMMERLY_RAG_EMBEDDING_DIMENSION:1536}
+    openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+    openai-api-key: ${OPENAI_API_KEY:}
+    request-timeout: ${HAMMERLY_EMBEDDING_TIMEOUT:20s}
 
 server:
   # The worker remains a Kafka consumer. Its application connector is disabled;

@@ -24,6 +24,26 @@ spring:
       minimum-idle: ${HAMMERLY_DB_MIN_IDLE:0}
       data-source-properties:
         sslmode: ${HAMMERLY_DB_SSL_MODE:require}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: ${REDIS_SSL:false}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:1s}
+      timeout: ${REDIS_COMMAND_TIMEOUT:1s}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.block.ms: 1000
+        request.timeout.ms: 2000
+        delivery.timeout.ms: 4000
   flyway:
     enabled: true
     create-schemas: true
@@ -43,20 +63,33 @@ hammerly:
   ai:
     base-url: ${HAMMERLY_AI_URL:http://localhost:5001}
     connect-timeout: ${HAMMERLY_AI_CONNECT_TIMEOUT:2s}
-    read-timeout: ${HAMMERLY_AI_READ_TIMEOUT:45s}
-    stream-timeout: ${HAMMERLY_AI_STREAM_TIMEOUT:50s}
+    read-timeout: ${HAMMERLY_AI_READ_TIMEOUT:25s}
+    stream-timeout: ${HAMMERLY_AI_STREAM_TIMEOUT:30s}
     stream-max-concurrent: ${HAMMERLY_AI_STREAM_MAX_CONCURRENT:1100}
     connection-pool-max-total: ${HAMMERLY_AI_CONNECTION_POOL_MAX_TOTAL:1100}
     connection-pool-max-per-route: ${HAMMERLY_AI_CONNECTION_POOL_MAX_PER_ROUTE:1100}
     diagnostic-enabled: ${HAMMERLY_AI_DIAGNOSTIC_ENABLED:true}
     internal-token: ${HAMMERLY_AI_INTERNAL_TOKEN:}
+  internal-token-required: ${HAMMERLY_INTERNAL_TOKEN_REQUIRED:false}
+  marketplace-cache:
+    enabled: ${HAMMERLY_MARKETPLACE_CACHE_ENABLED:true}
+    auction-ttl: ${HAMMERLY_MARKETPLACE_AUCTION_CACHE_TTL:60s}
+    listing-ttl: ${HAMMERLY_MARKETPLACE_LIST_CACHE_TTL:30s}
+  kafka:
+    enabled: ${HAMMERLY_KAFKA_ENABLED:true}
+    jobs-topic: ${HAMMERLY_KAFKA_AI_JOBS_TOPIC:hammerly.ai.jobs.v1}
+  outbox:
+    relay-delay: ${HAMMERLY_OUTBOX_RELAY_DELAY:2s}
+    retry-delay: ${HAMMERLY_OUTBOX_RETRY_DELAY:5s}
+    batch-size: ${HAMMERLY_OUTBOX_BATCH_SIZE:25}
+    publish-timeout: ${HAMMERLY_OUTBOX_PUBLISH_TIMEOUT:4s}
   database:
     seed: ${HAMMERLY_SEED_ENABLED:true}
   debug-endpoint:
     enabled: ${HAMMERLY_DEBUG_ENDPOINT_ENABLED:true}
 
 jwt:
-  secret: ${JWT_SECRET:your-secret-key-change-in-production}
+  secret: ${JWT_SECRET:local-development-secret-change-me-now}
   expiration-ms: ${JWT_EXPIRATION_MS:604800000}
 
 springdoc:
@@ -76,3 +109,11 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    redis:
+      enabled: false
+  metrics:
+    distribution:
+      percentiles-histogram:
+        ai.end.to.end.duration: true
+        ai.core.proxy.duration: true

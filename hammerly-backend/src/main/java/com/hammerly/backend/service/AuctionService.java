@@ -2,6 +2,7 @@ package com.hammerly.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hammerly.backend.dto.AuctionDtos.CreateAuctionRequest;
+import com.hammerly.backend.cache.MarketplaceCache;
 import com.hammerly.backend.exception.ApiException;
 import com.hammerly.backend.model.Auction;
 import com.hammerly.backend.repository.AuctionRepository;
@@ -26,27 +27,37 @@ public class AuctionService {
     private final BidRepository bids;
     private final WatchlistRepository watchlist;
     private final UserRepository users;
+    private final MarketplaceCache cache;
 
     public AuctionService(AuctionRepository auctions, BidRepository bids,
-                          WatchlistRepository watchlist, UserRepository users) {
+                          WatchlistRepository watchlist, UserRepository users,
+                          MarketplaceCache cache) {
         this.auctions = auctions;
         this.bids = bids;
         this.watchlist = watchlist;
         this.users = users;
+        this.cache = cache;
     }
 
     public Map<String, Object> top() {
+        var cached = cache.getTop();
+        if (cached.isPresent()) return cached.orElseThrow();
         Map<String, Object> rawStats = auctions.activeStats();
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("activeLots", number(rawStats.get("activeLots")).longValue());
         stats.put("totalValue", number(rawStats.get("totalValue")).doubleValue());
         stats.put("averageBid", Math.round(number(rawStats.get("averageBid")).doubleValue()));
         stats.put("completedToday", 32);
-        return responseWithData(auctions.findTop().stream().map(this::mapAuction).toList(), stats);
+        Map<String, Object> response = responseWithData(
+            auctions.findTop().stream().map(this::mapAuction).toList(), stats);
+        cache.putTop(response);
+        return response;
     }
 
     public Map<String, Object> get(String rawId) {
         long id = parseId(rawId);
+        var cached = cache.getAuction(id);
+        if (cached.isPresent()) return cached.orElseThrow();
         Auction auction = auctions.findById(id)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Auction not found"));
         Map<String, Object> data = mapAuction(auction);
@@ -57,7 +68,9 @@ public class AuctionService {
             bid.put("time", row.time());
             return bid;
         }).toList());
-        return successData(data);
+        Map<String, Object> response = successData(data);
+        cache.putAuction(id, response);
+        return response;
     }
 
     public Map<String, Object> related(String rawId) {
@@ -102,11 +115,19 @@ public class AuctionService {
         if (!"active".equals(auction.status())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Auction is not active");
         }
+        if (!TimeUtils.parse(auction.endTime()).isAfter(Instant.now())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Auction has ended");
+        }
+        if (auction.sellerId() == userId) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Sellers cannot bid on their own auctions");
+        }
         if (amount <= auction.currentBid()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Bid amount must be higher than the current bid");
         }
         auctions.updateCurrentBid(id, amount);
         bids.insert(id, userId, amount);
+        cache.invalidateAuctionAfterCommit(id);
+        cache.invalidateListingsAfterCommit();
         Map<String, Object> response = successMessage("Bid placed successfully");
         response.put("data", auctions.findById(id).map(this::mapAuction).orElse(null));
         return response;
@@ -200,11 +221,13 @@ public class AuctionService {
         Instant startTime = Instant.now();
         long id = auctions.insert(request.title(), request.category(), description, startPrice, image,
             truthy(request.condition()) ? request.condition() : null, userId, startTime, parsedEnd);
+        cache.invalidateListingsAfterCommit();
         Map<String, Object> response = successMessage("Auction created successfully");
         response.put("data", auctions.findById(id).map(this::mapAuction).orElse(null));
         return response;
     }
 
+    @Transactional
     public Map<String, Object> end(String rawId, long userId) {
         long id = parsePositiveId(rawId);
         OwnerRow auction = auctions.findOwner(id)
@@ -216,6 +239,8 @@ public class AuctionService {
             return successMessage("Auction is already ended");
         }
         auctions.end(id);
+        cache.invalidateAuctionAfterCommit(id);
+        cache.invalidateListingsAfterCommit();
         return successMessage("Auction ended successfully");
     }
 
@@ -230,6 +255,8 @@ public class AuctionService {
         bids.deleteByAuction(id);
         watchlist.deleteByAuction(id);
         auctions.delete(id);
+        cache.invalidateAuctionAfterCommit(id);
+        cache.invalidateListingsAfterCommit();
         return successMessage("Auction deleted successfully");
     }
 
