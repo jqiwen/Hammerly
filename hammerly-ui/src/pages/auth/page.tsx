@@ -3,7 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import Header from '../../components/feature/Header';
 // import Footer from '../../components/feature/Footer';
 import { useAuthStore } from '@/store/useAuthStore';
-import { loginApi, registerApi } from '@/api/auth';
+import { AuthApiError, loginApi, registerApi } from '@/api/auth';
+import {
+  normalizeEmail,
+  validateLogin,
+  validateRegistration,
+  type AuthFieldErrors,
+} from './authValidation';
+
+const FieldError = ({ message }: { message?: string }) =>
+  message ? <p className="text-xs text-red-600 mt-1" role="alert">{message}</p> : null;
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -21,6 +30,8 @@ export default function Auth() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordMismatch, setPasswordMismatch] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isLogin && formData.confirmPassword) {
@@ -36,29 +47,29 @@ export default function Auth() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
+    setFieldErrors((previous) => ({ ...previous, [name]: undefined }));
   };
 
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError('');
+    const validationErrors = validateRegistration(formData);
+    if (Object.keys(validationErrors).length > 0) {
+      setFieldErrors(validationErrors);
+      setError('Please correct the highlighted fields.');
+      return;
+    }
+    setFieldErrors({});
+    setIsSubmitting(true);
 
     try {
-      if (!formData.agreeTerms) {
-        setError('Please agree to the Terms & Privacy Policy.');
-        return;
-      }
-
-      if (formData.password.trim() !== formData.confirmPassword.trim()) {
-        setError('Passwords do not match.');
-        return;
-      }
-
       const data = await registerApi({
-        email: formData.email,
+        email: normalizeEmail(formData.email),
         password: formData.password,
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        phone: formData.phone, // Pass phone number to the API
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        phone: formData.phone.trim(),
       });
 
       useAuthStore.getState().loginSuccess({
@@ -67,20 +78,30 @@ export default function Auth() {
       });
 
       navigate('/profile');
-    } catch (error: any) {
-      const errorMessage = error instanceof Error ? error.message : 'Registration failed';
-      setError(errorMessage);
-      console.error('Register error:', error);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Registration failed');
+      if (caught instanceof AuthApiError) setFieldErrors(caught.fields);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError('');
+    const validationErrors = validateLogin(formData);
+    if (Object.keys(validationErrors).length > 0) {
+      setFieldErrors(validationErrors);
+      setError('Please correct the highlighted fields.');
+      return;
+    }
+    setFieldErrors({});
+    setIsSubmitting(true);
 
     try {
       const data = await loginApi({
-        email: formData.email,
+        email: normalizeEmail(formData.email),
         password: formData.password,
       });
 
@@ -90,10 +111,11 @@ export default function Auth() {
       });
 
       navigate('/profile');
-    } catch (err: any) {
-      const errorMessage = err instanceof Error ? err.message : 'Sign in failed';
-      setError(errorMessage);
-      console.error('Login error:', err);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Sign in failed');
+      if (caught instanceof AuthApiError) setFieldErrors(caught.fields);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -110,7 +132,9 @@ export default function Auth() {
                 onClick={() => {
                   setIsLogin(false);
                   setError('');
+                  setFieldErrors({});
                 }}
+                disabled={isSubmitting}
                 className={`flex-1 py-2.5 px-6 rounded-full font-medium transition-all cursor-pointer whitespace-nowrap text-sm ${
                   !isLogin ? 'bg-[#8B2635] text-white shadow-md' : 'text-gray-600 hover:text-gray-900'
                 }`}
@@ -121,7 +145,9 @@ export default function Auth() {
                 onClick={() => {
                   setIsLogin(true);
                   setError('');
+                  setFieldErrors({});
                 }}
+                disabled={isSubmitting}
                 className={`flex-1 py-2.5 px-6 rounded-full font-medium transition-all cursor-pointer whitespace-nowrap text-sm ${
                   isLogin ? 'bg-[#8B2635] text-white shadow-md' : 'text-gray-600 hover:text-gray-900'
                 }`}
@@ -132,7 +158,7 @@ export default function Auth() {
 
             {!isLogin ? (
               // ===================== REGISTER FORM =====================
-              <form onSubmit={handleRegister} className="space-y-4">
+              <form onSubmit={handleRegister} className="space-y-4" noValidate aria-busy={isSubmitting}>
                 {error && (
                   <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
                     {error}
@@ -141,65 +167,83 @@ export default function Auth() {
                 {/* Name Fields */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">First Name</label>
+                    <label htmlFor="register-first-name" className="block text-sm font-medium text-gray-700 mb-1.5">First Name</label>
                     <input
+                      id="register-first-name"
                       type="text"
                       name="firstName"
                       value={formData.firstName}
                       onChange={handleInputChange}
                       className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:border-[#8B2635] focus:ring-2 focus:ring-[#8B2635]/20 text-sm"
                       placeholder="First Name"
+                      maxLength={100}
+                      aria-invalid={Boolean(fieldErrors.firstName)}
                       required
                     />
+                    <FieldError message={fieldErrors.firstName} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Last Name</label>
+                    <label htmlFor="register-last-name" className="block text-sm font-medium text-gray-700 mb-1.5">Last Name</label>
                     <input
+                      id="register-last-name"
                       type="text"
                       name="lastName"
                       value={formData.lastName}
                       onChange={handleInputChange}
                       className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:border-[#8B2635] focus:ring-2 focus:ring-[#8B2635]/20 text-sm"
                       placeholder="Last Name"
+                      maxLength={100}
+                      aria-invalid={Boolean(fieldErrors.lastName)}
                       required
                     />
+                    <FieldError message={fieldErrors.lastName} />
                   </div>
                 </div>
 
                 {/* Email */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Email Address</label>
+                  <label htmlFor="register-email" className="block text-sm font-medium text-gray-700 mb-1.5">Email Address</label>
                   <div className="relative">
                     <i className="ri-mail-line absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                     <input
                       type="email"
+                      id="register-email"
                       name="email"
                       value={formData.email}
                       onChange={handleInputChange}
                       className="w-full pl-11 pr-4 py-2.5 rounded-lg border border-gray-300 focus:border-[#8B2635] focus:ring-2 focus:ring-[#8B2635]/20 text-sm"
                       placeholder="hammerly@example.com"
+                      maxLength={254}
+                      autoComplete="email"
+                      aria-invalid={Boolean(fieldErrors.email)}
                       required
                     />
                   </div>
+                  <FieldError message={fieldErrors.email} />
                 </div>
 
                 {/* Phone Number */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  <label htmlFor="register-phone" className="block text-sm font-medium text-gray-700 mb-1.5">
                     Phone Number
                   </label>
                   <div className="relative">
                     <i className="ri-phone-line absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                     <input
                       type="text"
+                      id="register-phone"
                       name="phone"
                       value={formData.phone}
                       onChange={handleInputChange}
                       className="w-full pl-11 pr-4 py-2.5 rounded-lg border border-gray-300 focus:border-[#8B2635] focus:ring-2 focus:ring-[#8B2635]/20 text-sm"
                       placeholder="Enter your phone number"
+                      maxLength={32}
+                      autoComplete="tel"
+                      aria-invalid={Boolean(fieldErrors.phone)}
                       required
                     />
                   </div>
+                  <FieldError message={fieldErrors.phone} />
                 </div>
 
 
@@ -207,16 +251,21 @@ export default function Auth() {
                 <div className="grid grid-cols-2 gap-4">
                   {/* Password */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+                    <label htmlFor="register-password" className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
                     <div className="relative">
                       <i className="ri-lock-line absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                       <input
                         type={showPassword ? 'text' : 'password'}
+                        id="register-password"
                         name="password"
                         value={formData.password}
                         onChange={handleInputChange}
                         className="w-full pl-11 pr-11 py-2.5 rounded-lg border border-gray-300 focus:border-[#8B2635] focus:ring-2 focus:ring-[#8B2635]/20 text-sm"
                         placeholder="••••••••"
+                        minLength={8}
+                        maxLength={128}
+                        autoComplete="new-password"
+                        aria-invalid={Boolean(fieldErrors.password)}
                         required
                       />
                       <button
@@ -227,15 +276,17 @@ export default function Auth() {
                         <i className={showPassword ? 'ri-eye-off-line' : 'ri-eye-line'}></i>
                       </button>
                     </div>
+                    <FieldError message={fieldErrors.password} />
                   </div>
 
                   {/* Confirm Password */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Confirm Password</label>
+                    <label htmlFor="register-confirm-password" className="block text-sm font-medium text-gray-700 mb-1.5">Confirm Password</label>
                     <div className="relative">
                       <i className="ri-lock-line absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                       <input
                         type={showConfirmPassword ? 'text' : 'password'}
+                        id="register-confirm-password"
                         name="confirmPassword"
                         value={formData.confirmPassword}
                         onChange={handleInputChange}
@@ -243,6 +294,9 @@ export default function Auth() {
                           passwordMismatch ? 'border-red-500' : 'border-gray-300'
                         } focus:border-[#8B2635] focus:ring-2 focus:ring-[#8B2635]/20 text-sm`}
                         placeholder="••••••••"
+                        maxLength={128}
+                        autoComplete="new-password"
+                        aria-invalid={Boolean(fieldErrors.confirmPassword || passwordMismatch)}
                         required
                       />
                       <button
@@ -253,7 +307,7 @@ export default function Auth() {
                         <i className={showConfirmPassword ? 'ri-eye-off-line' : 'ri-eye-line'}></i>
                       </button>
                     </div>
-                    {passwordMismatch && <p className="text-xs text-red-500 mt-1">Passwords do not match.</p>}
+                    <FieldError message={fieldErrors.confirmPassword || (passwordMismatch ? 'Passwords do not match.' : undefined)} />
                   </div>
                 </div>
 
@@ -265,6 +319,7 @@ export default function Auth() {
                       name="agreeTerms"
                       checked={formData.agreeTerms}
                       onChange={handleInputChange}
+                      aria-invalid={Boolean(fieldErrors.agreeTerms)}
                       className="w-4 h-4 rounded border-gray-300 text-[#8B2635] focus:ring-[#8B2635] cursor-pointer"
                       required
                     />
@@ -273,20 +328,22 @@ export default function Auth() {
                       <a className="text-[#8B2635] hover:underline">Privacy Policy</a>
                     </span>
                   </div>
+                  <FieldError message={fieldErrors.agreeTerms} />
                 </div>
 
                 {/* Register Submit */}
                 <button
                   type="submit"
-                  className="w-full bg-[#8B2635] text-white py-3 rounded-lg font-medium hover:bg-[#7A1F2B] transition-all flex items-center justify-center gap-2 text-sm"
+                  disabled={isSubmitting}
+                  className="w-full bg-[#8B2635] text-white py-3 rounded-lg font-medium hover:bg-[#7A1F2B] disabled:opacity-60 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-sm"
                 >
-                  Create Account
-                  <i className="ri-arrow-right-line w-5 h-5 flex items-center justify-center"></i>
+                  {isSubmitting ? 'Creating account…' : 'Create Account'}
+                  <i className={`${isSubmitting ? 'ri-loader-4-line animate-spin' : 'ri-arrow-right-line'} w-5 h-5 flex items-center justify-center`}></i>
                 </button>
               </form>
             ) : (
               // ===================== LOGIN FORM =====================
-              <form onSubmit={handleLogin} className="space-y-4">
+              <form onSubmit={handleLogin} className="space-y-4" noValidate aria-busy={isSubmitting}>
                 {error && (
                   <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
                     {error}
@@ -294,33 +351,42 @@ export default function Auth() {
                 )}
                 {/* Email */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Email Address</label>
+                  <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1.5">Email Address</label>
                   <div className="relative">
                     <i className="ri-mail-line absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                     <input
                       type="email"
+                      id="login-email"
                       name="email"
                       value={formData.email}
                       onChange={handleInputChange}
                       className="w-full pl-11 pr-4 py-2.5 rounded-lg border border-gray-300 focus:border-[#8B2635] focus:ring-2 focus:ring-[#8B2635]/20 text-sm"
                       placeholder="hammerly@example.com"
+                      maxLength={254}
+                      autoComplete="email"
+                      aria-invalid={Boolean(fieldErrors.email)}
                       required
                     />
                   </div>
+                  <FieldError message={fieldErrors.email} />
                 </div>
 
                 {/* Password */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+                  <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
                   <div className="relative">
                     <i className="ri-lock-line absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
                     <input
                       type={showPassword ? 'text' : 'password'}
+                      id="login-password"
                       name="password"
                       value={formData.password}
                       onChange={handleInputChange}
                       className="w-full pl-11 pr-11 py-2.5 rounded-lg border border-gray-300 focus:border-[#8B2635] focus:ring-2 focus:ring-[#8B2635]/20 text-sm"
                       placeholder="••••••••"
+                      maxLength={128}
+                      autoComplete="current-password"
+                      aria-invalid={Boolean(fieldErrors.password)}
                       required
                     />
                     <button
@@ -331,6 +397,7 @@ export default function Auth() {
                       <i className={showPassword ? 'ri-eye-off-line' : 'ri-eye-line'}></i>
                     </button>
                   </div>
+                  <FieldError message={fieldErrors.password} />
                 </div>
 
                 {/* Forgot password */}
@@ -341,10 +408,11 @@ export default function Auth() {
                 {/* Login Submit */}
                 <button
                   type="submit"
-                  className="w-full bg-[#8B2635] text-white py-3 rounded-lg font-medium hover:bg-[#7A1F2B] transition-all flex items-center justify-center gap-2 text-sm"
+                  disabled={isSubmitting}
+                  className="w-full bg-[#8B2635] text-white py-3 rounded-lg font-medium hover:bg-[#7A1F2B] disabled:opacity-60 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-sm"
                 >
-                  Sign In
-                  <i className="ri-arrow-right-line w-5 h-5 flex items-center justify-center"></i>
+                  {isSubmitting ? 'Signing in…' : 'Sign In'}
+                  <i className={`${isSubmitting ? 'ri-loader-4-line animate-spin' : 'ri-arrow-right-line'} w-5 h-5 flex items-center justify-center`}></i>
                 </button>
               </form>
             )}

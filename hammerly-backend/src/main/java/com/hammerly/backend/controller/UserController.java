@@ -8,6 +8,7 @@ import com.hammerly.backend.security.AuthenticatedUser;
 import com.hammerly.backend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.Valid;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -39,14 +40,14 @@ public class UserController {
     @PutMapping("/profile")
     @Operation(summary = "Update current user profile", tags = "Users", security = @SecurityRequirement(name = "BearerAuth"))
     Map<String, Object> updateProfile(@AuthenticationPrincipal AuthenticatedUser user,
-                                      @RequestBody UpdateProfileRequest request) {
+                                      @Valid @RequestBody UpdateProfileRequest request) {
         return service.updateProfile(user.userId(), request);
     }
 
     @PutMapping("/profile/password")
     @Operation(summary = "Change current user password", tags = "Users", security = @SecurityRequirement(name = "BearerAuth"))
     Map<String, Object> changePassword(@AuthenticationPrincipal AuthenticatedUser user,
-                                       @RequestBody ChangePasswordRequest request) {
+                                       @Valid @RequestBody ChangePasswordRequest request) {
         return service.changePassword(user.userId(), request);
     }
 

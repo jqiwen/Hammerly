@@ -7,8 +7,7 @@ export type User = {
   lastName: string;
   email?: string;
   phone?: string;
-  avatarImage?: string
-  password? :string
+  avatarImage?: string;
 };
 
 type AuthState = {
@@ -31,12 +30,15 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       watchedCount: 0,
 
-      loginSuccess: ({ user, token }) =>
+      loginSuccess: ({ user, token }) => {
+        if (token) localStorage.setItem('token', token);
+        else localStorage.removeItem('token');
         set({
           isLoggedIn: true,
           user,
           token: token || null,
-        }),
+        });
+      },
 
       updateUser: (updates) =>
         set((state) => ({

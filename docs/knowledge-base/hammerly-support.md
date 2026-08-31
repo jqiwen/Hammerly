@@ -4,7 +4,7 @@ This guide describes behavior implemented by the Hammerly application. It is sup
 
 ## Accounts And Security
 
-Create an account with a first name, last name, email address, password, and optional phone number. Email addresses must be unique. Sign in with the registered email and password. Authenticated requests use the bearer token returned by registration or login. An invalid or expired token requires signing in again.
+Create an account with a first name, last name, email address, password, and phone number. Email addresses are trimmed, case-insensitive account identities and must be unique. Passwords must be at least eight characters. Sign in with the registered email and password. Authenticated requests use the short-lived bearer token returned by registration or login. An invalid or expired token requires signing in again. Signing out clears the browser's token; Hammerly does not currently maintain a server-side token revocation list.
 
 Never share a password, bearer token, or full payment-card data in AI support chat. Hammerly AI
 does not need these credentials to explain platform features.

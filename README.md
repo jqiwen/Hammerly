@@ -227,6 +227,10 @@ when running Java processes directly. Important Phase 4/5 variables are:
 | `HAMMERLY_WORKER_PROCESSING_LOCK_TTL` | `2m` | In-progress event lock TTL |
 | `HAMMERLY_WORKER_SUMMARY_TTL` | `7d` | Separate summary TTL |
 | `HAMMERLY_AI_INTERNAL_TOKEN` | empty locally | Shared Core-to-AI production request token |
+| `HAMMERLY_AUTH_JWT_TTL` | `45m` | Core access-token lifetime |
+| `HAMMERLY_AUTH_RATE_LIMIT_REDIS_ENABLED` | `true` in Compose, `false` Cloud Run default | Distributed auth throttling with bounded process-local fallback |
+| `HAMMERLY_AUTH_LOGIN_LIMIT` / `HAMMERLY_AUTH_LOGIN_WINDOW` | `10` / `1m` | Login requests per client IP and window |
+| `HAMMERLY_AUTH_REGISTER_LIMIT` / `HAMMERLY_AUTH_REGISTER_WINDOW` | `5` / `10m` | Registration requests per client IP and window |
 | `HAMMERLY_MARKETPLACE_CACHE_ENABLED` | `true` locally, `false` production default | Core Redis cache-aside with PostgreSQL fallback |
 | `HAMMERLY_MARKETPLACE_CACHE_OPERATION_TIMEOUT` | `500ms` | Hard deadline before marketplace reads fall through to PostgreSQL |
 | `REDIS_CONNECT_TIMEOUT` / `REDIS_COMMAND_TIMEOUT` | `250ms` | Bounds synchronous Redis failure detection in the local services |

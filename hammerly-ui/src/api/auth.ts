@@ -1,5 +1,13 @@
-type LoginReq = { email: string; password: string };
-type RegisterReq = { firstName: string; lastName: string; email: string; password: string; phone: string };
+import { authenticatedFetch } from './authenticatedFetch';
+
+export type LoginRequest = { email: string; password: string };
+export type RegisterRequest = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  phone: string;
+};
 
 export type AuthResponse = {
   user: {
@@ -7,182 +15,72 @@ export type AuthResponse = {
     firstName: string;
     lastName: string;
     email: string;
+    phone?: string;
+    avatarImage?: string;
   };
-  token?: string;
+  token: string;
 };
 
-const mockUser = {
-  id: 'mock-user-001',
-  firstName: 'User',
-  lastName: '001',
-  email: 'user001@hammerly.com',
-  phone: '+1 1234567890',
-  avatarImage: '/images/user.jpg',
-  password: '123456789'
+type ErrorPayload = {
+  message?: unknown;
+  fields?: unknown;
 };
+
+export class AuthApiError extends Error {
+  readonly fields: Record<string, string>;
+
+  constructor(message: string, fields: Record<string, string> = {}) {
+    super(message);
+    this.name = 'AuthApiError';
+    this.fields = fields;
+  }
+}
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
-// ========== MOCK LOGIN - FOR TESTING ==========
-const USE_MOCK_LOGIN = false; // Set to false to use real backend
-
-const fakeDelay = (ms = 500) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * Mock register - returns success with sample user
- */
-const mockRegisterApi = async (payload: RegisterReq): Promise<AuthResponse> => {
-  await fakeDelay();
-  return {
-    user: {
-      id: 'mock-user-' + Date.now(),
-      firstName: payload.firstName,
-      lastName: payload.lastName,
-      email: payload.email,
-    },
-    token: 'mock-token-' + Date.now(),
-  };
+const parseErrorFields = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
 };
 
-/**
- * Mock login - returns success with sample user
- */
-const mockLoginApi = async (payload: LoginReq): Promise<AuthResponse> => {
-  await fakeDelay();
-  return {
-    user: {
-      ...mockUser,
-      email: payload.email,
-    },
-    token: 'mock-token-' + Date.now(),
-  };
+const postAuth = async <T>(path: string, payload: unknown, fallback: string): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => null) as ErrorPayload | null;
+  if (!response.ok) {
+    throw new AuthApiError(
+      typeof data?.message === 'string' ? data.message : fallback,
+      parseErrorFields(data?.fields),
+    );
+  }
+  return data as T;
 };
 
-/**
- * Register a new user
- * Maps to: POST /api/auth/register
- */
-export const registerApi = async (payload: RegisterReq): Promise<AuthResponse> => {
-  // Use mock if enabled
-  if (USE_MOCK_LOGIN) {
-    console.log('🎭 Using MOCK register');
-    return mockRegisterApi(payload);
-  }
+export const registerApi = (payload: RegisterRequest) =>
+  postAuth<AuthResponse>('/auth/register', payload, 'Registration failed. Please try again.');
 
-  try {
-    console.log('📡 Calling API:', `${API_BASE_URL}/auth/register`);
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    
-    let data;
-    try {
-      data = await response.json();
-    } catch (parseError) {
-      console.error('❌ Failed to parse response:', parseError);
-      throw new Error(`Server error: ${response.status} ${response.statusText}`);
-    }
-    
-    if (!response.ok) {
-      throw new Error(data.message || `HTTP ${response.status}: Registration failed`);
-    }
-    
-    // Save token to localStorage
-    if (data.token) {
-      localStorage.setItem('token', data.token);
-    }
-    return data;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Registration failed - network error';
-    console.error('❌ Register error:', message);
-    throw new Error(message);
-  }
-};
+export const loginApi = (payload: LoginRequest) =>
+  postAuth<AuthResponse>('/auth/login', payload, 'Sign in failed. Please try again.');
 
-/**
- * Login user
- * Maps to: POST /api/auth/login
- */
-export const loginApi = async (payload: LoginReq): Promise<AuthResponse> => {
-  // Use mock if enabled
-  if (USE_MOCK_LOGIN) {
-    console.log('🎭 Using MOCK login');
-    return mockLoginApi(payload);
-  }
-
-  try {
-    console.log('📡 Calling API:', `${API_BASE_URL}/auth/login`);
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    
-    let data;
-    try {
-      data = await response.json();
-    } catch (parseError) {
-      console.error('❌ Failed to parse response:', parseError);
-      throw new Error(`Server error: ${response.status} ${response.statusText}`);
-    }
-    
-    if (!response.ok) {
-      throw new Error(data.message || `HTTP ${response.status}: Login failed`);
-    }
-    
-    // Save token to localStorage
-    if (data.token) {
-      localStorage.setItem('token', data.token);
-    }
-    return data;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Login failed - network error';
-    console.error('❌ Login error:', message);
-    throw new Error(message);
-  }
-};
-
-/**
- * Logout user
- * Maps to: POST /api/auth/logout
- */
-export const logoutApi = async (): Promise<{ success: boolean }> => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/auth/logout`, {
-      method: 'POST'
-    });
-    if (!response.ok) throw new Error('Logout failed');
-    return await response.json();
-  } catch (error) {
-    console.error('Error logging out:', error);
-    throw error;
-  }
+export const logoutApi = async (accessToken: string | null): Promise<{ success: boolean }> => {
+  if (!accessToken) return { success: true };
+  const response = await authenticatedFetch(
+    `${API_BASE_URL}/auth/logout`,
+    { method: 'POST' },
+    { accessToken, clearSessionOnUnauthorized: false },
+  );
+  if (!response.ok) throw new Error('Logout acknowledgement failed');
+  return response.json();
 };
 
 export const authApi = {
-  register: async (email: string, password: string, firstName: string, lastName: string, phone: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password, firstName, lastName, phone }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to register');
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Error during registration:', error);
-      throw error;
-    }
-  },
-
+  register: (email: string, password: string, firstName: string, lastName: string, phone: string) =>
+    registerApi({ email, password, firstName, lastName, phone }),
   login: loginApi,
-  logout: logoutApi
+  logout: logoutApi,
 };

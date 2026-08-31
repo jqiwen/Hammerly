@@ -46,6 +46,22 @@ spec:
                 secretKeyRef:
                   name: hammerly-app-secrets
                   key: JWT_SECRET
+            - name: HAMMERLY_AUTH_JWT_TTL
+              value: 45m
+            - name: HAMMERLY_AUTH_RATE_LIMIT_ENABLED
+              value: "true"
+            - name: HAMMERLY_AUTH_RATE_LIMIT_REDIS_ENABLED
+              value: "true"
+            - name: HAMMERLY_AUTH_TRUST_FORWARDED_FOR
+              value: "false"
+            - name: HAMMERLY_AUTH_LOGIN_LIMIT
+              value: "10"
+            - name: HAMMERLY_AUTH_LOGIN_WINDOW
+              value: 1m
+            - name: HAMMERLY_AUTH_REGISTER_LIMIT
+              value: "5"
+            - name: HAMMERLY_AUTH_REGISTER_WINDOW
+              value: 10m
             - name: HAMMERLY_AI_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:

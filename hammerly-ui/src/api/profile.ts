@@ -1,18 +1,14 @@
+import { authenticatedFetch } from './authenticatedFetch';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-};
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 // ─── Profile Info ─────────────────────────────────────────────
 
 export const getProfile = async () => {
-  const res = await fetch(`${API_BASE_URL}/users/profile`, {
-    headers: getAuthHeaders(),
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile`, {
+    headers: JSON_HEADERS,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Failed to get profile');
@@ -25,9 +21,9 @@ export const updateProfile = async (payload: {
   email: string;
   phone?: string;
 }) => {
-  const res = await fetch(`${API_BASE_URL}/users/profile`, {
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile`, {
     method: 'PUT',
-    headers: getAuthHeaders(),
+    headers: JSON_HEADERS,
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -42,9 +38,9 @@ export const changePassword = async (payload: {
   newPassword: string;
   confirmPassword: string;
 }) => {
-  const res = await fetch(`${API_BASE_URL}/users/profile/password`, {
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile/password`, {
     method: 'PUT',
-    headers: getAuthHeaders(),
+    headers: JSON_HEADERS,
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -55,9 +51,9 @@ export const changePassword = async (payload: {
 // ─── Avatar ───────────────────────────────────────────────────
 
 export const updateAvatar = async (avatarImage: string) => {
-  const res = await fetch(`${API_BASE_URL}/users/profile/avatar`, {
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile/avatar`, {
     method: 'PUT',
-    headers: getAuthHeaders(),
+    headers: JSON_HEADERS,
     body: JSON.stringify({ avatarImage }),
   });
   const data = await res.json();
@@ -66,9 +62,9 @@ export const updateAvatar = async (avatarImage: string) => {
 };
 
 export const removeAvatar = async () => {
-  const res = await fetch(`${API_BASE_URL}/users/profile/avatar`, {
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile/avatar`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
+    headers: JSON_HEADERS,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Failed to remove avatar');
@@ -93,8 +89,8 @@ export type PaymentMethod = {
 };
 
 export const getPaymentMethods = async (): Promise<{ success: boolean; paymentMethods: PaymentMethod[] }> => {
-  const res = await fetch(`${API_BASE_URL}/users/profile/payment-methods`, {
-    headers: getAuthHeaders(),
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile/payment-methods`, {
+    headers: JSON_HEADERS,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Failed to get payment methods');
@@ -114,9 +110,9 @@ export const addPaymentMethod = async (payload: {
   billingPostalCode?: string;
   billingCountry?: string;
 }) => {
-  const res = await fetch(`${API_BASE_URL}/users/profile/payment-methods`, {
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile/payment-methods`, {
     method: 'POST',
-    headers: getAuthHeaders(),
+    headers: JSON_HEADERS,
     body: JSON.stringify(payload),
   });
   const data = await res.json();
@@ -125,9 +121,9 @@ export const addPaymentMethod = async (payload: {
 };
 
 export const deletePaymentMethod = async (id: number) => {
-  const res = await fetch(`${API_BASE_URL}/users/profile/payment-methods/${id}`, {
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile/payment-methods/${id}`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
+    headers: JSON_HEADERS,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Failed to delete payment method');
@@ -135,9 +131,9 @@ export const deletePaymentMethod = async (id: number) => {
 };
 
 export const setDefaultPaymentMethod = async (id: number) => {
-  const res = await fetch(`${API_BASE_URL}/users/profile/payment-methods/${id}/default`, {
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/profile/payment-methods/${id}/default`, {
     method: 'PUT',
-    headers: getAuthHeaders(),
+    headers: JSON_HEADERS,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Failed to set default payment method');
@@ -147,8 +143,8 @@ export const setDefaultPaymentMethod = async (id: number) => {
 // ─── Bidding List ─────────────────────────────────────────────
 
 export const getBiddingList = async () => {
-  const res = await fetch(`${API_BASE_URL}/users/my-bids`, {
-    headers: getAuthHeaders(),
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/my-bids`, {
+    headers: JSON_HEADERS,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Failed to get bidding list');
@@ -158,8 +154,8 @@ export const getBiddingList = async () => {
 // ─── Selling List ─────────────────────────────────────────────
 
 export const getSellingList = async () => {
-  const res = await fetch(`${API_BASE_URL}/users/my-auctions`, {
-    headers: getAuthHeaders(),
+  const res = await authenticatedFetch(`${API_BASE_URL}/users/my-auctions`, {
+    headers: JSON_HEADERS,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || 'Failed to get selling list');

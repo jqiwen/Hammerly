@@ -60,6 +60,17 @@ spring:
 
 hammerly:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  auth:
+    jwt-ttl: ${HAMMERLY_AUTH_JWT_TTL:45m}
+    rate-limit:
+      enabled: ${HAMMERLY_AUTH_RATE_LIMIT_ENABLED:true}
+      redis-enabled: ${HAMMERLY_AUTH_RATE_LIMIT_REDIS_ENABLED:false}
+      trust-forwarded-for: ${HAMMERLY_AUTH_TRUST_FORWARDED_FOR:false}
+      login-limit: ${HAMMERLY_AUTH_LOGIN_LIMIT:10}
+      login-window: ${HAMMERLY_AUTH_LOGIN_WINDOW:1m}
+      register-limit: ${HAMMERLY_AUTH_REGISTER_LIMIT:5}
+      register-window: ${HAMMERLY_AUTH_REGISTER_WINDOW:10m}
+      local-max-keys: ${HAMMERLY_AUTH_RATE_LIMIT_LOCAL_MAX_KEYS:10000}
   ai:
     base-url: ${HAMMERLY_AI_URL:http://localhost:5001}
     connect-timeout: ${HAMMERLY_AI_CONNECT_TIMEOUT:2s}
@@ -91,7 +102,6 @@ hammerly:
 
 jwt:
   secret: ${JWT_SECRET:local-development-secret-change-me-now}
-  expiration-ms: ${JWT_EXPIRATION_MS:604800000}
 
 springdoc:
   api-docs:

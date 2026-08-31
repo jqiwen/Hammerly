@@ -16,7 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 public class InternalKnowledgeTokenFilter extends OncePerRequestFilter {
-    private static final String PREFIX = "/internal/knowledge/";
+    private static final String PREFIX = "/internal/";
     private final byte[] expected;
     private final boolean required;
 
@@ -27,7 +27,7 @@ public class InternalKnowledgeTokenFilter extends OncePerRequestFilter {
             ? token.getBytes(StandardCharsets.UTF_8) : new byte[0];
         this.required = required;
         if (required && expected.length == 0) {
-            throw new IllegalStateException("HAMMERLY_AI_INTERNAL_TOKEN is required for internal knowledge APIs");
+            throw new IllegalStateException("HAMMERLY_AI_INTERNAL_TOKEN is required for internal APIs");
         }
     }
 

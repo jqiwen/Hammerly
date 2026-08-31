@@ -2,6 +2,7 @@ package com.hammerly.backend.exception;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Comparator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -39,12 +40,26 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException exception) {
-        return ResponseEntity.badRequest().body(error("Invalid request"));
+        Map<String, String> fields = new LinkedHashMap<>();
+        exception.getBindingResult().getFieldErrors().stream()
+            .sorted(Comparator.comparing(error -> error.getField()))
+            .forEach(error -> fields.putIfAbsent(error.getField(), error.getDefaultMessage()));
+        return ResponseEntity.badRequest().body(validationError(fields));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     ResponseEntity<Map<String, Object>> handleUnreadable(HttpMessageNotReadableException exception) {
-        return ResponseEntity.badRequest().body(error("Invalid request"));
+        return ResponseEntity.badRequest().body(validationError(Map.of()));
+    }
+
+    @ExceptionHandler(AuthRateLimitExceededException.class)
+    ResponseEntity<Map<String, Object>> handleAuthRateLimit(AuthRateLimitExceededException exception) {
+        Map<String, Object> body = error(AuthRateLimitExceededException.MESSAGE);
+        body.put("error", "AUTH_RATE_LIMIT_EXCEEDED");
+        return ResponseEntity.status(429)
+            .header("Retry-After", Long.toString(exception.retryAfterSeconds()))
+            .header("X-RateLimit-Limit", Integer.toString(exception.limit()))
+            .body(body);
     }
 
     @ExceptionHandler(Exception.class)
@@ -57,6 +72,13 @@ public class GlobalExceptionHandler {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", false);
         response.put("message", message);
+        return response;
+    }
+
+    private Map<String, Object> validationError(Map<String, String> fields) {
+        Map<String, Object> response = error("Invalid request");
+        response.put("error", "VALIDATION_ERROR");
+        response.put("fields", fields);
         return response;
     }
 }

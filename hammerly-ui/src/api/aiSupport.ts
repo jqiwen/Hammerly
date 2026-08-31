@@ -1,3 +1,5 @@
+import { authenticatedFetch } from './authenticatedFetch';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 export const AI_SUPPORT_UNAVAILABLE_MESSAGE =
@@ -31,15 +33,10 @@ export class AiSupportRateLimitError extends Error {
   }
 }
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
-
-  return {
+const getAuthHeaders = () => ({
     Accept: 'text/event-stream, application/json',
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-};
+  });
 
 type StreamAiSupportOptions = {
   question: string;
@@ -111,7 +108,7 @@ export const streamAiSupport = async ({
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/ai/support/chat/stream`, {
+    const response = await authenticatedFetch(`${API_BASE_URL}/ai/support/chat/stream`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({

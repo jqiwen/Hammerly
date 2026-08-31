@@ -52,7 +52,14 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.DELETE, "/api/auctions/unwatch/*", "/api/auctions/delete/*").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/auctions/get-watchlist", "/api/auctions/is-watched/*").authenticated()
                 .requestMatchers(HttpMethod.PATCH, "/api/auctions/end/*").authenticated()
-                .anyRequest().permitAll())
+                .requestMatchers("/health", "/actuator/health", "/actuator/prometheus", "/error",
+                    "/v3/api-docs/**", "/api-docs/**", "/internal/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login", "/api/ai/support/**")
+                    .permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/auth", "/api/auth/", "/api/users/*",
+                    "/api/auctions/get-top", "/api/auctions/get/*", "/api/auctions/get-related/*",
+                    "/api/auctions/search").permitAll()
+                .anyRequest().authenticated())
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(knowledgeTokenFilter, JwtAuthenticationFilter.class);
         return http.build();

@@ -1,3 +1,5 @@
+import { authenticatedFetch } from './authenticatedFetch';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const AUCTION_LIST_CACHE_TTL_MS = 60_000;
 const AUCTION_LIST_TIMEOUT_MS = 6_000;
@@ -27,13 +29,7 @@ type CreateAuctionPayload = {
   endTime?: string;
 };
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('token');
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {})
-  };
-};
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 const parseResponseOrThrow = async (response: Response, fallbackError: string) => {
   let data: any = null;
@@ -151,11 +147,11 @@ export const auctionApi = {
   // Place a bid
   placeBid: async (auctionId: number, bidAmount: number) => {
     try {
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `${API_BASE_URL}/auctions/${auctionId}/bid?bidAmount=${encodeURIComponent(String(bidAmount))}`,
         {
           method: 'GET',
-          headers: getAuthHeaders()
+          headers: JSON_HEADERS
         }
       );
       return await parseResponseOrThrow(response, 'Failed to place bid');
@@ -198,9 +194,9 @@ export const auctionApi = {
   // Add auction to user's watchlist
   watchAuction: async (auctionId: number) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auctions/watch/${auctionId}`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auctions/watch/${auctionId}`, {
         method: 'POST',
-        headers: getAuthHeaders()
+        headers: JSON_HEADERS
       });
       return await parseResponseOrThrow(response, 'Failed to add item to watchlist');
     } catch (error) {
@@ -212,9 +208,9 @@ export const auctionApi = {
   // Remove auction from user's watchlist
   unwatchAuction: async (auctionId: number) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auctions/unwatch/${auctionId}`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auctions/unwatch/${auctionId}`, {
         method: 'DELETE',
-        headers: getAuthHeaders()
+        headers: JSON_HEADERS
       });
       return await parseResponseOrThrow(response, 'Failed to remove item from watchlist');
     } catch (error) {
@@ -226,9 +222,9 @@ export const auctionApi = {
   // Get user's watchlist
   getWatchlist: async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auctions/get-watchlist`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auctions/get-watchlist`, {
         method: 'GET',
-        headers: getAuthHeaders()
+        headers: JSON_HEADERS
       });
       return await parseResponseOrThrow(response, 'Failed to fetch watchlist');
     } catch (error) {
@@ -240,9 +236,9 @@ export const auctionApi = {
   // Check if auction is watched by current user
   isAuctionWatched: async (auctionId: number) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auctions/is-watched/${auctionId}`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auctions/is-watched/${auctionId}`, {
         method: 'GET',
-        headers: getAuthHeaders()
+        headers: JSON_HEADERS
       });
       return await parseResponseOrThrow(response, 'Failed to check watch status');
     } catch (error) {
@@ -254,9 +250,9 @@ export const auctionApi = {
   // Create a new auction listing
   createAuction: async (payload: CreateAuctionPayload) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auctions/create`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auctions/create`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify(payload)
       });
       return await parseResponseOrThrow(response, 'Failed to create auction');
@@ -269,9 +265,9 @@ export const auctionApi = {
   // Delete an auction listing
   deleteAuction: async (auctionId: number) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auctions/delete/${auctionId}`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auctions/delete/${auctionId}`, {
         method: 'DELETE',
-        headers: getAuthHeaders()
+        headers: JSON_HEADERS
       });
       return await parseResponseOrThrow(response, 'Failed to delete auction');
     } catch (error) {
@@ -283,9 +279,9 @@ export const auctionApi = {
   // End an auction listing
   endAuction: async (auctionId: number) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auctions/end/${auctionId}`, {
+      const response = await authenticatedFetch(`${API_BASE_URL}/auctions/end/${auctionId}`, {
         method: 'PATCH',
-        headers: getAuthHeaders()
+        headers: JSON_HEADERS
       });
       return await parseResponseOrThrow(response, 'Failed to end auction');
     } catch (error) {

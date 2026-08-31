@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,14 +45,15 @@ public class UserService {
     }
 
     public Map<String, Object> updateProfile(long userId, UpdateProfileRequest request) {
-        if (request == null || missing(request.firstName()) || missing(request.lastName()) || missing(request.email())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "First name, last name, and email are required");
-        }
         if (users.emailBelongsToAnotherUser(request.email(), userId)) {
             throw new ApiException(HttpStatus.CONFLICT, "Email already in use by another account");
         }
-        users.updateProfile(userId, request.firstName(), request.lastName(), request.email(),
-            request.phone() == null ? "" : request.phone());
+        try {
+            users.updateProfile(userId, request.firstName(), request.lastName(), request.email(),
+                request.phone() == null ? "" : request.phone());
+        } catch (DuplicateKeyException exception) {
+            throw new ApiException(HttpStatus.CONFLICT, "Email already in use by another account");
+        }
         Map<String, Object> response = successMessage("Profile updated successfully");
         response.put("user", mapProfile(requireUser(userId)));
         return response;
@@ -62,8 +64,8 @@ public class UserService {
             missing(request.confirmPassword())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "All password fields are required");
         }
-        if (request.newPassword().length() < 6) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "New password must be at least 6 characters");
+        if (request.newPassword().length() < 8) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "New password must be at least 8 characters");
         }
         if (!request.newPassword().equals(request.confirmPassword())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "New passwords do not match");
@@ -232,9 +234,8 @@ public class UserService {
     private Map<String, Object> mapPayment(PaymentMethod method) {
         Map<String, Object> mapped = new LinkedHashMap<>();
         mapped.put("id", method.id());
-        mapped.put("user_id", method.userId());
         mapped.put("cardType", method.cardType());
-        mapped.put("cardNumber", method.cardNumber());
+        mapped.put("cardNumber", lastFour(method.cardNumber()));
         mapped.put("expiryMonth", method.expiryMonth());
         mapped.put("expiryYear", method.expiryYear());
         mapped.put("cardholderName", method.cardholderName());
@@ -246,6 +247,11 @@ public class UserService {
         mapped.put("billingCountry", method.billingCountry());
         mapped.put("createdAt", method.createdAt());
         return mapped;
+    }
+
+    private String lastFour(String cardNumber) {
+        String digits = cardNumber == null ? "" : cardNumber.replaceAll("\\D", "");
+        return digits.length() <= 4 ? digits : digits.substring(digits.length() - 4);
     }
 
     private String listingStatus(String status, String endTime) {

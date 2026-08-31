@@ -208,6 +208,12 @@ CORE_CLOUD_RUN_MIN_INSTANCES=0
 HAMMERLY_DB_MAX_POOL_SIZE=5
 HAMMERLY_DB_MIN_IDLE=0
 HAMMERLY_MARKETPLACE_CACHE_ENABLED=false
+HAMMERLY_AUTH_JWT_TTL=45m
+HAMMERLY_AUTH_RATE_LIMIT_REDIS_ENABLED=false
+HAMMERLY_AUTH_LOGIN_LIMIT=10
+HAMMERLY_AUTH_LOGIN_WINDOW=1m
+HAMMERLY_AUTH_REGISTER_LIMIT=5
+HAMMERLY_AUTH_REGISTER_WINDOW=10m
 
 AI_CLOUD_RUN_SERVICE=hammerly-ai
 AI_RUNTIME_SERVICE_ACCOUNT
@@ -260,6 +266,8 @@ instance retains one ready database connection, and set
 `HAMMERLY_MARKETPLACE_CACHE_ENABLED=true` only after the configured Redis endpoint
 is reachable from Core. Keep the documented `0`/`false` values in cost-saving or
 Redis-free deployments.
+
+Core always enables auth throttling and trusts Cloud Run's forwarded client address in the deployment workflow. The default process-local limiter is safe for the Redis-free/cost-saving profile but applies independently to each Cloud Run instance. Set `HAMMERLY_AUTH_RATE_LIMIT_REDIS_ENABLED=true` when Memorystore is reachable to enforce shared thresholds across instances. Redis failures automatically fall back to bounded local windows. Access tokens expire after `HAMMERLY_AUTH_JWT_TTL` (45 minutes by default); logout is client-side token disposal and does not revoke an already issued token.
 
 Cloud Run startup CPU boost is enabled explicitly by both request-driven deployment workflows.
 For a warm portfolio/demo profile, enable Memorystore and set `HAMMERLY_REDIS_ENABLED=true` in

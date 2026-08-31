@@ -7,18 +7,24 @@ import static org.hamcrest.Matchers.blankOrNullString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
 import com.hammerly.backend.config.DatabaseInitializer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.time.Instant;
+import java.time.Duration;
+import java.util.Date;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +49,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
     "hammerly.debug-endpoint.enabled=true",
     "spring.datasource.hikari.data-source-properties.sslmode=disable",
     "hammerly.marketplace-cache.enabled=false",
+    "hammerly.auth.rate-limit.enabled=false",
     "hammerly.kafka.enabled=false",
     "hammerly.ai.internal-token=test-internal-token",
     "hammerly.internal-token-required=true",
@@ -94,6 +101,12 @@ class HammerlyApiIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.total").value(1))
             .andExpect(jsonPath("$.totalPages").value(1));
+        mvc.perform(options("/api/auth/login")
+                .header("Origin", "http://localhost:3000")
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "content-type"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3000"));
     }
 
     @Test
@@ -157,8 +170,8 @@ class HammerlyApiIntegrationTest {
         mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("firstName", "Test", "lastName", "User", "email", "auth-flow@example.com",
                     "password", "password123", "phone", "555-0100"))))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.message").value("Email is already in use"));
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.message").value("An account with that email already exists"));
         mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("email", "auth-flow@example.com", "password", "password123"))))
             .andExpect(status().isOk())
@@ -171,6 +184,45 @@ class HammerlyApiIntegrationTest {
     }
 
     @Test
+    void authValidationNormalizationDatabaseUniquenessAndLogoutSemanticsWork() throws Exception {
+        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("firstName", " ", "lastName", "User", "email", "invalid",
+                    "password", "short", "phone", "abc"))))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("VALIDATION_ERROR"))
+            .andExpect(jsonPath("$.message").value("Invalid request"))
+            .andExpect(jsonPath("$.fields.email").exists())
+            .andExpect(jsonPath("$.fields.firstName").exists())
+            .andExpect(jsonPath("$.fields.password").exists())
+            .andExpect(jsonPath("$.fields.phone").exists());
+
+        JsonNode account = register("  Mixed.Case@Example.COM  ", "password123");
+        String token = account.path("token").asText();
+        org.assertj.core.api.Assertions.assertThat(account.path("user").path("email").asText())
+            .isEqualTo("mixed.case@example.com");
+        login(" MIXED.CASE@example.com ", "password123");
+
+        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("firstName", "Test", "lastName", "User",
+                    "email", "MIXED.CASE@EXAMPLE.COM", "password", "password123", "phone", "555-0100"))))
+            .andExpect(status().isConflict());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbc.update("""
+            INSERT INTO users (first_name, last_name, email, password, phone)
+            VALUES ('Direct', 'Insert', 'MIXED.CASE@EXAMPLE.COM', 'not-a-real-hash', '555-0100')
+            """)).hasMessageContaining("users_normalized_email_unique");
+
+        mvc.perform(post("/api/auth/logout"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/logout").header("Authorization", bearer(token)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.message").value(
+                "Logout acknowledged; the client must discard its access token"));
+        mvc.perform(get("/api/users/profile").header("Authorization", bearer(token)))
+            .andExpect(status().isOk());
+    }
+
+    @Test
     void invalidCredentialsAndMissingJwtReturnLegacyErrors() throws Exception {
         mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                 .content(json(Map.of("email", "seller1@hammerly.com", "password", "wrong"))))
@@ -180,6 +232,18 @@ class HammerlyApiIntegrationTest {
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.message").value("No token provided"));
         mvc.perform(get("/api/users/profile").header("Authorization", "Bearer invalid-token"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.message").value("Invalid or expired token"));
+        Instant now = Instant.now();
+        String expiredToken = JWT.create()
+            .withIssuer("hammerly-core")
+            .withAudience("hammerly-web")
+            .withClaim("userId", 1L)
+            .withClaim("email", "expired@example.com")
+            .withIssuedAt(Date.from(now.minus(Duration.ofHours(2))))
+            .withExpiresAt(Date.from(now.minus(Duration.ofHours(1))))
+            .sign(Algorithm.HMAC256("test-secret-compatible-with-node-jsonwebtoken"));
+        mvc.perform(get("/api/users/profile").header("Authorization", bearer(expiredToken)))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.message").value("Invalid or expired token"));
     }
@@ -289,7 +353,8 @@ class HammerlyApiIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.paymentMethods", hasSize(2)))
             .andExpect(jsonPath("$.paymentMethods[0].id").value(secondId))
-            .andExpect(jsonPath("$.paymentMethods[0].cardNumber").value("5555555555554444"));
+            .andExpect(jsonPath("$.paymentMethods[0].cardNumber").value("4444"))
+            .andExpect(jsonPath("$.paymentMethods[0].user_id").doesNotExist());
         mvc.perform(delete("/api/users/profile/payment-methods/{id}", firstId)
                 .header("Authorization", bearer(token)))
             .andExpect(status().isOk())
@@ -308,6 +373,39 @@ class HammerlyApiIntegrationTest {
             .andExpect(jsonPath("$.message").value("Auction deleted successfully"));
         mvc.perform(get("/api/auctions/get/{id}", auctionId))
             .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void authenticatedUserCannotSpoofSellerOrMutateAnotherUsersResources() throws Exception {
+        String attackerToken = login("seller1@hammerly.com", "password123");
+        long victimId = jdbc.queryForObject("SELECT id FROM users WHERE email = 'seller2@hammerly.com'", Long.class);
+        long victimAuctionId = auctionId("Signed First Edition Novel");
+
+        mvc.perform(post("/api/auctions/create").header("Authorization", bearer(attackerToken))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json(Map.of("title", "Spoofed Listing", "category", "Books", "sellerId", victimId,
+                    "startingPrice", 10, "duration", 2))))
+            .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/auctions/end/{id}", victimAuctionId)
+                .header("Authorization", bearer(attackerToken)))
+            .andExpect(status().isForbidden());
+        mvc.perform(delete("/api/auctions/delete/{id}", victimAuctionId)
+                .header("Authorization", bearer(attackerToken)))
+            .andExpect(status().isForbidden());
+
+        String ownerToken = register("payment-owner@example.com", "password123").path("token").asText();
+        long paymentId = body(addCard(ownerToken, "Visa", "4111 1111 1111 1111", false))
+            .path("paymentMethod").path("id").asLong();
+        String otherToken = register("payment-other@example.com", "password123").path("token").asText();
+        mvc.perform(delete("/api/users/profile/payment-methods/{id}", paymentId)
+                .header("Authorization", bearer(otherToken)))
+            .andExpect(status().isNotFound());
+        mvc.perform(put("/api/users/profile/payment-methods/{id}/default", paymentId)
+                .header("Authorization", bearer(otherToken)))
+            .andExpect(status().isNotFound());
+        mvc.perform(get("/api/users/profile/payment-methods").header("Authorization", bearer(ownerToken)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.paymentMethods[0].id").value(paymentId));
     }
 
     @Test
@@ -332,6 +430,8 @@ class HammerlyApiIntegrationTest {
 
         mvc.perform(post("/internal/knowledge/documents")
                 .contentType(MediaType.APPLICATION_JSON).content(payload))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get("/internal/integration/ai-health"))
             .andExpect(status().isUnauthorized());
 
         MvcResult created = mvc.perform(post("/internal/knowledge/documents")

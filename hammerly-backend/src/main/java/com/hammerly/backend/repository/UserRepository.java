@@ -21,7 +21,8 @@ public class UserRepository {
     }
 
     public Optional<User> findByEmail(String email) {
-        return first(jdbc.query("SELECT " + PROFILE_COLUMNS + " FROM users WHERE email = ?", this::mapUser, email));
+        return first(jdbc.query("SELECT " + PROFILE_COLUMNS + " FROM users WHERE lower(btrim(email)) = ?",
+            this::mapUser, email));
     }
 
     public Optional<User> findById(long id) {
@@ -29,7 +30,7 @@ public class UserRepository {
     }
 
     public boolean emailBelongsToAnotherUser(String email, long userId) {
-        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE email = ? AND id != ?",
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE lower(btrim(email)) = ? AND id != ?",
             Integer.class, email, userId);
         return count != null && count > 0;
     }
