@@ -66,7 +66,7 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
     private RagResult retrieveBounded(String query) {
         try {
             Long versionValue = jdbc.queryForObject(
-                "SELECT version FROM knowledge_base_state WHERE id = 1", Long.class);
+                "SELECT version FROM hammerly.knowledge_base_state WHERE id = 1", Long.class);
             long version = versionValue == null ? 0 : versionValue;
             String cacheKey = cacheKey(query, version);
             Optional<RagResult> cached = readCache(cacheKey);
@@ -84,8 +84,8 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
                        COALESCE(NULLIF(c.metadata->>'sectionTitle', ''), d.title) AS title,
                        d.title AS source, c.content,
                        1 - (c.embedding <=> CAST(? AS vector)) AS similarity
-                FROM knowledge_chunks c
-                JOIN knowledge_documents d ON d.id = c.document_id
+                FROM hammerly.knowledge_chunks c
+                JOIN hammerly.knowledge_documents d ON d.id = c.document_id
                 WHERE d.status = 'READY'
                   AND 1 - (c.embedding <=> CAST(? AS vector)) >= ?
                 ORDER BY c.embedding <=> CAST(? AS vector)

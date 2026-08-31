@@ -49,6 +49,21 @@ class OpenAiQueryEmbeddingProviderTest {
             .hasMessageContaining("invalid vector");
     }
 
+    @Test
+    void missingApiKeyIsLazyAndFailsOnlyWhenAnEmbeddingIsRequested() {
+        RagProperties properties = new RagProperties(true, 4, 0.25,
+            Duration.ofMinutes(5), Duration.ofSeconds(2), "openai",
+            "text-embedding-3-small", 3, "https://api.openai.test", "",
+            "jdbc:postgresql://localhost/test", "", "", "disable");
+
+        OpenAiQueryEmbeddingProvider provider = new OpenAiQueryEmbeddingProvider(properties);
+
+        assertThatThrownBy(() -> provider.embed("question"))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("OPENAI_API_KEY")
+            .hasMessageContaining("embedding is requested");
+    }
+
     private RagProperties properties(int dimension) {
         return new RagProperties(true, 4, 0.25, Duration.ofMinutes(5), Duration.ofSeconds(2),
             "openai", "text-embedding-3-small", dimension, "https://api.openai.test", "key",

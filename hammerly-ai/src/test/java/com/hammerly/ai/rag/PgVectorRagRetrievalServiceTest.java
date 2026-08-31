@@ -118,7 +118,8 @@ class PgVectorRagRetrievalServiceTest {
         ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
         verify(jdbc).query(sql.capture(), any(RowMapper.class), parameters.capture());
-        assertThat(sql.getValue()).contains("d.status = 'READY'", "embedding <=>", "LIMIT ?");
+        assertThat(sql.getValue()).contains("hammerly.knowledge_chunks",
+            "hammerly.knowledge_documents", "d.status = 'READY'", "embedding <=>", "LIMIT ?");
         assertThat(parameters.getValue()[2]).isEqualTo(0.25);
         assertThat(parameters.getValue()[4]).isEqualTo(4);
     }

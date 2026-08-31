@@ -2,6 +2,7 @@ package com.hammerly.ai.rag;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -16,18 +17,18 @@ public class OpenAiQueryEmbeddingProvider implements QueryEmbeddingProvider {
     private final RagProperties properties;
     private final RestClient client;
 
+    @Autowired
     public OpenAiQueryEmbeddingProvider(RagProperties properties) {
         this.properties = properties;
-        if (!StringUtils.hasText(properties.openaiApiKey())) {
-            throw new IllegalStateException("OPENAI_API_KEY is required for OpenAI query embeddings");
-        }
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.timeout());
         requestFactory.setReadTimeout(properties.timeout());
-        this.client = RestClient.builder().baseUrl(properties.openaiBaseUrl())
-            .requestFactory(requestFactory)
-            .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + properties.openaiApiKey())
-            .build();
+        RestClient.Builder builder = RestClient.builder().baseUrl(properties.openaiBaseUrl())
+            .requestFactory(requestFactory);
+        if (StringUtils.hasText(properties.openaiApiKey())) {
+            builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + properties.openaiApiKey());
+        }
+        this.client = builder.build();
     }
 
     OpenAiQueryEmbeddingProvider(RagProperties properties, RestClient client) {
@@ -37,6 +38,10 @@ public class OpenAiQueryEmbeddingProvider implements QueryEmbeddingProvider {
 
     @Override
     public float[] embed(String input) {
+        if (!StringUtils.hasText(properties.openaiApiKey())) {
+            throw new IllegalStateException(
+                "OPENAI_API_KEY is required when an OpenAI query embedding is requested");
+        }
         JsonNode response = client.post().uri("/v1/embeddings")
             .body(Map.of("model", properties.embeddingModel(), "input", input,
                 "dimensions", properties.embeddingDimension()))

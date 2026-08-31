@@ -158,15 +158,19 @@ class OpenAiProviderExecutorTest {
         executor = ProviderExecutorTestFactory.create(registry, settings);
         Sinks.One<Void> release = Sinks.one();
         CountDownLatch providerEntered = new CountDownLatch(1);
+        CountDownLatch providerExited = new CountDownLatch(1);
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maximum = new AtomicInteger();
 
         Disposable first = executor.stream("stream", () -> Flux.defer(() -> {
-                providerEntered.countDown();
                 int now = active.incrementAndGet();
                 maximum.accumulateAndGet(now, Math::max);
+                providerEntered.countDown();
                 return release.asMono().thenMany(Flux.just("done"))
-                    .doFinally(ignored -> active.decrementAndGet());
+                    .doFinally(ignored -> {
+                        active.decrementAndGet();
+                        providerExited.countDown();
+                    });
             }))
             .subscribeOn(Schedulers.parallel())
             .subscribe();
@@ -177,6 +181,7 @@ class OpenAiProviderExecutorTest {
             .verify();
 
         release.tryEmitEmpty();
+        assertThat(providerExited.await(1, TimeUnit.SECONDS)).isTrue();
         first.dispose();
         assertThat(maximum).hasValue(1);
         assertThat(registry.get("hammerly.ai.bulkhead.rejected").counter().count()).isEqualTo(1.0);

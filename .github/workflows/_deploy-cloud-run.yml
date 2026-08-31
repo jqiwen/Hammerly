@@ -78,6 +78,8 @@ jobs:
           OPENAI_API_KEY: ""
           HAMMERLY_REDIS_ENABLED: "false"
           HAMMERLY_KAFKA_ENABLED: "false"
+          HAMMERLY_RAG_ENABLED: "false"
+          HAMMERLY_AI_EMBEDDING_PROVIDER: deterministic
           SUPABASE_DB_URL: jdbc:postgresql://127.0.0.1:1/ci-unused?sslmode=disable
           JWT_SECRET: ci-only-secret-that-is-never-used-in-production
           HAMMERLY_SEED_ENABLED: "false"

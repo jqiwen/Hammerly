@@ -34,18 +34,17 @@ class PgVectorRagRetrievalIntegrationTest {
             POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("CREATE EXTENSION IF NOT EXISTS vector");
-        jdbc.execute("DROP TABLE IF EXISTS knowledge_chunks");
-        jdbc.execute("DROP TABLE IF EXISTS knowledge_documents");
-        jdbc.execute("DROP TABLE IF EXISTS knowledge_base_state");
+        jdbc.execute("DROP SCHEMA IF EXISTS hammerly CASCADE");
+        jdbc.execute("CREATE SCHEMA hammerly");
         jdbc.execute("""
-            CREATE TABLE knowledge_documents (
+            CREATE TABLE hammerly.knowledge_documents (
                 id UUID PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL
             )
             """);
         jdbc.execute("""
-            CREATE TABLE knowledge_chunks (
+            CREATE TABLE hammerly.knowledge_chunks (
                 id UUID PRIMARY KEY,
-                document_id UUID NOT NULL REFERENCES knowledge_documents(id),
+                document_id UUID NOT NULL REFERENCES hammerly.knowledge_documents(id),
                 content TEXT NOT NULL,
                 embedding vector(3) NOT NULL,
                 metadata JSONB NOT NULL DEFAULT '{}'::jsonb
@@ -53,10 +52,14 @@ class PgVectorRagRetrievalIntegrationTest {
             """);
         jdbc.execute("""
             CREATE INDEX knowledge_chunks_embedding_hnsw_idx
-            ON knowledge_chunks USING hnsw (embedding vector_cosine_ops)
+            ON hammerly.knowledge_chunks USING hnsw (embedding vector_cosine_ops)
             """);
-        jdbc.execute("CREATE TABLE knowledge_base_state (id SMALLINT PRIMARY KEY, version BIGINT NOT NULL)");
-        jdbc.update("INSERT INTO knowledge_base_state (id, version) VALUES (1, 8)");
+        jdbc.execute("""
+            CREATE TABLE hammerly.knowledge_base_state (
+                id SMALLINT PRIMARY KEY, version BIGINT NOT NULL
+            )
+            """);
+        jdbc.update("INSERT INTO hammerly.knowledge_base_state (id, version) VALUES (1, 8)");
     }
 
     @AfterEach
@@ -96,10 +99,12 @@ class PgVectorRagRetrievalIntegrationTest {
     private void insertDocument(String title, String status, String sectionTitle,
                                 String content, String vector) {
         UUID documentId = UUID.randomUUID();
-        jdbc.update("INSERT INTO knowledge_documents (id, title, status) VALUES (?, ?, ?)",
+        jdbc.update("""
+            INSERT INTO hammerly.knowledge_documents (id, title, status) VALUES (?, ?, ?)
+            """,
             documentId, title, status);
         jdbc.update("""
-            INSERT INTO knowledge_chunks (id, document_id, content, embedding, metadata)
+            INSERT INTO hammerly.knowledge_chunks (id, document_id, content, embedding, metadata)
             VALUES (?, ?, ?, CAST(? AS vector), CAST(? AS jsonb))
             """, UUID.randomUUID(), documentId, content, vector,
             "{\"sectionTitle\":\"" + sectionTitle + "\"}");

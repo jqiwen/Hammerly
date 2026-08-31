@@ -23,12 +23,17 @@ public class RagDatabaseConfiguration {
         }
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(properties.datasourceUrl());
-        config.setUsername(properties.datasourceUsername());
-        config.setPassword(properties.datasourcePassword());
+        if (StringUtils.hasText(properties.datasourceUsername())) {
+            config.setUsername(properties.datasourceUsername());
+        }
+        if (StringUtils.hasText(properties.datasourcePassword())) {
+            config.setPassword(properties.datasourcePassword());
+        }
         config.setSchema("hammerly");
         config.setMaximumPoolSize(4);
         config.setMinimumIdle(0);
         config.setConnectionTimeout(Math.max(250, properties.timeout().toMillis()));
+        config.setInitializationFailTimeout(-1);
         config.addDataSourceProperty("sslmode", properties.datasourceSslMode());
         return new HikariDataSource(config);
     }

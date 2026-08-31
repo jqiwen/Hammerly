@@ -131,6 +131,8 @@ management:
     health:
       show-details: never
   health:
+    db:
+      enabled: false
     redis:
       enabled: false
   metrics:
