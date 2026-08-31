@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { auctionApi } from '../../../api/auctions';
+import { RelatedItemsSkeleton } from './RelatedAuctionCardSkeleton';
 
 interface RelatedItemsProps {
   currentId: number;
@@ -29,7 +30,7 @@ export default function RelatedItems({ currentId }: RelatedItemsProps) {
   }, [currentId]);
 
   if (loading) {
-    return <p>Loading related items...</p>;
+    return <RelatedItemsSkeleton />;
   }
 
   if (error) {

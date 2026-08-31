@@ -7,39 +7,47 @@ import BiddingSection from './components/BiddingSection';
 import ItemDetails from './components/ItemDetails';
 import SellerInfo from './components/SellerInfo';
 import RelatedItems from './components/RelatedItems';
+import AuctionDetailSkeleton from './components/AuctionDetailSkeleton';
 
 export default function AuctionDetail() {
   const { id } = useParams();
+  const auctionId = Number.parseInt(id || '0', 10);
   const [auction, setAuction] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [resolvedAuctionId, setResolvedAuctionId] = useState<number | null>(null);
 
   useEffect(() => {
+    let isCurrentRequest = true;
+
     const fetchAuction = async () => {
       try {
         setLoading(true);
-        const response = await auctionApi.getAuctionById(parseInt(id || '0'));
+        const response = await auctionApi.getAuctionById(auctionId);
+        if (!isCurrentRequest) return;
         setAuction(response.data);
         setError(null);
       } catch (err) {
+        if (!isCurrentRequest) return;
         console.error('Failed to fetch auction:', err);
         setError('Failed to load auction. Please try again later.');
       } finally {
-        setLoading(false);
+        if (isCurrentRequest) {
+          setResolvedAuctionId(auctionId);
+          setLoading(false);
+        }
       }
     };
 
-    fetchAuction();
-  }, [id]);
+    void fetchAuction();
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Loading...</h1>
-        </div>
-      </div>
-    );
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [auctionId]);
+
+  if (loading || resolvedAuctionId !== auctionId) {
+    return <AuctionDetailSkeleton />;
   }
 
   if (error || !auction) {
