@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -32,7 +33,8 @@ public class MarketplaceCache {
     private static final Logger log = LoggerFactory.getLogger(MarketplaceCache.class);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() { };
     private static final String AUCTION_PREFIX = "hammerly:marketplace:auction:";
-    private static final String TOP_KEY = "hammerly:marketplace:list:top:v1";
+    private static final String TOP_KEY = "hammerly:marketplace:list:top:v2";
+    private static final String FIRST_PAGE_KEY = "hammerly:marketplace:list:search:empty:page:1:size:12:v1";
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -68,12 +70,20 @@ public class MarketplaceCache {
         put(TOP_KEY, value, properties.listingTtl());
     }
 
+    public Optional<Map<String, Object>> getFirstPage() {
+        return get(FIRST_PAGE_KEY);
+    }
+
+    public void putFirstPage(Map<String, Object> value) {
+        put(FIRST_PAGE_KEY, value, properties.listingTtl());
+    }
+
     public void invalidateAuctionAfterCommit(long auctionId) {
         afterCommit(() -> delete(AUCTION_PREFIX + auctionId));
     }
 
     public void invalidateListingsAfterCommit() {
-        afterCommit(() -> delete(TOP_KEY));
+        afterCommit(() -> delete(List.of(TOP_KEY, FIRST_PAGE_KEY)));
     }
 
     private Optional<Map<String, Object>> get(String key) {
@@ -120,6 +130,18 @@ public class MarketplaceCache {
         long startedAt = System.nanoTime();
         try {
             bounded(() -> redis.delete(key));
+        } catch (RuntimeException exception) {
+            error("invalidate", exception);
+        } finally {
+            operationCompleted("invalidate", startedAt);
+        }
+    }
+
+    private void delete(List<String> keys) {
+        if (!properties.enabled() || redis == null) return;
+        long startedAt = System.nanoTime();
+        try {
+            bounded(() -> redis.delete(keys));
         } catch (RuntimeException exception) {
             error("invalidate", exception);
         } finally {

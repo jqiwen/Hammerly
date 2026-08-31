@@ -1,4 +1,12 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const AUCTION_LIST_CACHE_TTL_MS = 60_000;
+const AUCTION_LIST_TIMEOUT_MS = 6_000;
+const TOP_AUCTIONS_CACHE_KEY = 'hammerly:auction-list:top:v2';
+
+type CachedAuctionResponse = {
+  cachedAt: number;
+  response: any;
+};
 
 type CreateAuctionPayload = {
   title: string;
@@ -46,6 +54,58 @@ const parseResponseOrThrow = async (response: Response, fallbackError: string) =
   return data;
 };
 
+const readAuctionListCache = (key: string) => {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as CachedAuctionResponse;
+    if (!cached.cachedAt || Date.now() - cached.cachedAt > AUCTION_LIST_CACHE_TTL_MS) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return cached.response;
+  } catch {
+    return null;
+  }
+};
+
+const writeAuctionListCache = (key: string, response: any) => {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ cachedAt: Date.now(), response }));
+  } catch {
+    // Storage can be disabled or full; the network response is still usable.
+  }
+};
+
+const searchCacheKey = (query: string, page: number, size: number) =>
+  `hammerly:auction-list:search:${query.trim().toLocaleLowerCase()}:page:${page}:size:${size}:v1`;
+
+const fetchAuctionList = async (url: string, fallbackError: string) => {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), AUCTION_LIST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(fallbackError);
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) {
+        await new Promise(resolve => window.setTimeout(resolve, 250));
+      }
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  if (lastError instanceof DOMException && lastError.name === 'AbortError') {
+    throw new Error('Auction request timed out');
+  }
+  throw lastError instanceof Error ? lastError : new Error(fallbackError);
+};
+
 export const auctionApi = {
   // // Get all auctions with pagination
   // getAuctions: async (page = 1) => {
@@ -60,11 +120,16 @@ export const auctionApi = {
   // },
 
   // Get top auctions
+  getCachedTopAuctions: () => readAuctionListCache(TOP_AUCTIONS_CACHE_KEY),
+
   getTopAuctions: async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/auctions/get-top`); 
-      if (!response.ok) throw new Error('Failed to fetch auctions'); 
-      return await response.json();
+      const response = await fetchAuctionList(
+        `${API_BASE_URL}/auctions/get-top`,
+        'Failed to fetch auctions'
+      );
+      writeAuctionListCache(TOP_AUCTIONS_CACHE_KEY, response);
+      return response;
     } catch (error) {
       console.error('Error fetching top auctions:', error);
       throw error;
@@ -101,13 +166,17 @@ export const auctionApi = {
   },
 
   // Search auctions by title substring with pagination
-  searchAuctions: async (query: string, page = 1) => {
+  getCachedSearchAuctions: (query: string, page = 1, size = 12) =>
+    readAuctionListCache(searchCacheKey(query, page, size)),
+
+  searchAuctions: async (query: string, page = 1, size = 12) => {
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/auctions/search?q=${encodeURIComponent(query)}&page=${page}`
+      const response = await fetchAuctionList(
+        `${API_BASE_URL}/auctions/search?q=${encodeURIComponent(query)}&page=${page}&size=${size}`,
+        'Failed to search auctions'
       );
-      if (!response.ok) throw new Error('Failed to search auctions');
-      return await response.json();
+      writeAuctionListCache(searchCacheKey(query, page, size), response);
+      return response;
     } catch (error) {
       console.error('Error searching auctions:', error);
       throw error;

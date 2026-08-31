@@ -103,6 +103,8 @@ jobs:
         HAMMERLY_DEBUG_ENDPOINT_ENABLED=false
         HAMMERLY_AI_DIAGNOSTIC_ENABLED=false
         HAMMERLY_MARKETPLACE_CACHE_ENABLED=${{ vars.HAMMERLY_MARKETPLACE_CACHE_ENABLED || 'false' }}
+        HAMMERLY_DB_MAX_POOL_SIZE=${{ vars.HAMMERLY_DB_MAX_POOL_SIZE || '5' }}
+        HAMMERLY_DB_MIN_IDLE=${{ vars.HAMMERLY_DB_MIN_IDLE || '0' }}
         HAMMERLY_KAFKA_ENABLED=${{ vars.HAMMERLY_KAFKA_ENABLED || 'false' }}
         REDIS_HOST=${{ vars.AI_REDIS_HOST || 'redis-not-configured.invalid' }}
         REDIS_PORT=${{ vars.AI_REDIS_PORT || '6379' }}

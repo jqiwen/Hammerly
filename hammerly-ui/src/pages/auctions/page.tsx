@@ -5,6 +5,7 @@ import Header from '../../components/feature/Header';
 import Footer from '../../components/feature/Footer';
 import AuctionCard from './components/AuctionCard';
 import { auctionApi } from '../../api/auctions';
+import AuctionCardSkeleton from '../../components/feature/AuctionCardSkeleton';
 
 interface Auction {
   id: number;
@@ -27,35 +28,47 @@ export default function Auctions() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const limit = 9;
+  const [reloadToken, setReloadToken] = useState(0);
+  const limit = 12;
 
   useEffect(() => {
+    let active = true;
     const fetchAuctions = async () => {
-      try {
+      const cachedResponse = auctionApi.getCachedSearchAuctions(searchQuery, currentPage, limit);
+      setError(null);
+      if (cachedResponse) {
+        setAuctions(cachedResponse.data || []);
+        setTotal(cachedResponse.total || 0);
+        setLoading(false);
+      } else {
+        setAuctions([]);
         setLoading(true);
-        let response;
+      }
+      try {
+        const response = await auctionApi.searchAuctions(searchQuery, currentPage, limit);
 
-        if (searchQuery.trim()) {
-          response = await auctionApi.searchAuctions(searchQuery, currentPage);
-        } else {
-          response = await auctionApi.searchAuctions('', currentPage);
-        }
-
+        if (!active) return;
         setAuctions(response.data || []);
         setTotal(response.total || 0);
         setError(null);
       } catch (err) {
+        if (!active) return;
         console.error('Failed to fetch auctions:', err);
-        setError('Failed to load auctions.');
-        setAuctions([]);
-        setTotal(0);
+        setError('Unable to load auctions.');
+        if (!cachedResponse) {
+          setAuctions([]);
+          setTotal(0);
+        }
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     fetchAuctions();
-  }, [currentPage, searchQuery]);
+    return () => {
+      active = false;
+    };
+  }, [currentPage, searchQuery, reloadToken]);
 
 
   const handleSearch = (e: React.FormEvent) => {
@@ -129,20 +142,29 @@ export default function Auctions() {
 
           {/* Loading State */}
           {loading && (
-            <div className="text-center py-12">
-              <p className="text-gray-600 text-lg">Loading auctions...</p>
+            <div aria-label="Loading auctions" className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }, (_, index) => (
+                <AuctionCardSkeleton key={index} />
+              ))}
             </div>
           )}
 
           {/* Error State */}
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-8">
-              <p>{error}</p>
+            <div className="mb-8 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
+              <p>{error}{auctions.length > 0 ? ' Showing the latest session copy.' : ''}</p>
+              <button
+                type="button"
+                onClick={() => setReloadToken(value => value + 1)}
+                className="rounded border border-red-300 px-3 py-1 font-medium hover:bg-red-100"
+              >
+                Try again
+              </button>
             </div>
           )}
 
           {/* Auction Cards */}
-          {!loading && !error && auctions.length > 0 ? (
+          {!loading && auctions.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {auctions.map((auction) => (
                 <AuctionCard key={auction.id} auction={auction} viewType="grid" />

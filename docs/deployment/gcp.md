@@ -205,6 +205,9 @@ CORE_DB_SECRET=hammerly-supabase-db-url
 CORE_JWT_SECRET=hammerly-jwt-secret
 CORE_REDIS_PASSWORD_SECRET=hammerly-redis-password
 CORE_CLOUD_RUN_MIN_INSTANCES=0
+HAMMERLY_DB_MAX_POOL_SIZE=5
+HAMMERLY_DB_MIN_IDLE=0
+HAMMERLY_MARKETPLACE_CACHE_ENABLED=false
 
 AI_CLOUD_RUN_SERVICE=hammerly-ai
 AI_RUNTIME_SERVICE_ACCOUNT
@@ -243,6 +246,11 @@ For the lowest-cost configuration, leave both Cloud Run minimums at `0`. For a
 portfolio/demo environment where first-request latency matters, set both
 `CORE_CLOUD_RUN_MIN_INSTANCES=1` and `AI_CLOUD_RUN_MIN_INSTANCES=1`. This keeps
 one warm instance of each service and incurs the corresponding Cloud Run cost.
+For the same low-latency Core profile, set `HAMMERLY_DB_MIN_IDLE=1` so its warm
+instance retains one ready database connection, and set
+`HAMMERLY_MARKETPLACE_CACHE_ENABLED=true` only after the configured Redis endpoint
+is reachable from Core. Keep the documented `0`/`false` values in cost-saving or
+Redis-free deployments.
 
 Set the service-account variables to their full email addresses. No GitHub Action secret is required for GCP credentials or application runtime secrets.
 

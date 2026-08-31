@@ -38,9 +38,31 @@ No tables need to be created in the Supabase dashboard. Flyway creates the `hamm
 | `HAMMERLY_AI_DIAGNOSTIC_ENABLED` | `true` locally; disabled by `prod` | Enables local `GET /internal/integration/ai-health` verification. |
 | `HAMMERLY_AI_INTERNAL_TOKEN` | empty locally | Shared token Core adds to internal AI requests; required in production. |
 | `HAMMERLY_DB_MAX_POOL_SIZE` | `5` | Hikari maximum pool size. |
-| `HAMMERLY_DB_MIN_IDLE` | `0` | Hikari minimum idle connections. |
+| `HAMMERLY_DB_MIN_IDLE` | `0` | Hikari minimum idle connections. Use `1` with a warm portfolio/demo Core instance to avoid first-connection latency. |
 
 The sample accounts created when seeding is enabled are `seller1@hammerly.com`, `seller2@hammerly.com`, and `bidder1@hammerly.com`, each with password `password123`. Production disables seeding unless `HAMMERLY_SEED_ENABLED=true` is explicitly supplied.
+
+## Explicit 100-auction demo seed
+
+The production-safe catalog seed is not connected to application startup. It
+creates four reserved `@hammerly.example` sellers and exactly 100 deterministic
+auctions (70 active, 15 scheduled using the schema's `active` status with a future
+`start_time`, and 15 ended). It never deletes rows and refuses to run if a reserved
+demo email belongs to an unexpected user. Existing catalog rows are refreshed only
+when both their deterministic title and reserved seller match.
+
+With `SUPABASE_DB_URL` configured, inspect the target using aggregate counts only,
+then intentionally seed it:
+
+```powershell
+..\scripts\seed-demo-auctions.ps1 -CheckOnly
+..\scripts\seed-demo-auctions.ps1
+```
+
+The script runs `scripts/seed-demo-auctions.sql` through a temporary PostgreSQL 17
+Docker client. Run it again at any time to verify idempotency; the result remains
+100 demo auctions. Application startup seeding remains independently controlled by
+`HAMMERLY_SEED_ENABLED` and remains `false` in production.
 
 The Java/API monetary representation remains `double` for compatibility, while JDBC writes are converted to `BigDecimal` and PostgreSQL stores auction and bid amounts as `NUMERIC(12,2)`.
 

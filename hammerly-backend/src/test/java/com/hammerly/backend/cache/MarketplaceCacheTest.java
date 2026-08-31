@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -45,7 +46,7 @@ class MarketplaceCacheTest {
         @SuppressWarnings("unchecked")
         ValueOperations<String, String> values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
-        when(values.get("hammerly:marketplace:list:top:v1"))
+        when(values.get("hammerly:marketplace:list:top:v2"))
             .thenThrow(new IllegalStateException("redis unavailable"));
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         MarketplaceCache cache = cache(redis, registry);
@@ -58,6 +59,26 @@ class MarketplaceCacheTest {
         assertThat(registry.counter("marketplace.cache.errors", "operation", "read").count())
             .isEqualTo(1);
         assertThat(registry.counter("marketplace.cache.short_circuit").count()).isEqualTo(1);
+    }
+
+    @Test
+    void firstListingPageUsesCacheAndListingInvalidationClearsBothKeys() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> values = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(values);
+        String firstPageKey = "hammerly:marketplace:list:search:empty:page:1:size:12:v1";
+        when(values.get(firstPageKey)).thenReturn("{\"success\":true,\"data\":[]}");
+        MarketplaceCache cache = cache(redis, new SimpleMeterRegistry());
+
+        assertThat(cache.getFirstPage()).hasValueSatisfying(value ->
+            assertThat(value).containsEntry("success", true));
+        cache.putFirstPage(Map.of("success", true, "data", List.of()));
+        cache.invalidateListingsAfterCommit();
+
+        verify(values).set(eq(firstPageKey), argThat(json -> json.contains("\"data\":[]")),
+            eq(Duration.ofSeconds(30)));
+        verify(redis).delete(List.of("hammerly:marketplace:list:top:v2", firstPageKey));
     }
 
     @Test

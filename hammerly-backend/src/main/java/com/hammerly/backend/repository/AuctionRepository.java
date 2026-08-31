@@ -1,6 +1,7 @@
 package com.hammerly.backend.repository;
 
 import com.hammerly.backend.model.Auction;
+import com.hammerly.backend.model.AuctionSummary;
 import com.hammerly.backend.util.TimeUtils;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
@@ -27,17 +28,37 @@ public class AuctionRepository {
         LEFT JOIN users u ON u.id = a.seller_id
         LEFT JOIN bids b ON b.auction_id = a.id
         """;
+    private static final String SUMMARY_SELECT = """
+        SELECT a.id, a.title, a.category, a.current_bid, a.image, a.condition,
+               a.status, a.start_time, a.end_time, a.created_at,
+               COALESCE(u.first_name || ' ' || u.last_name, NULL) AS seller,
+               COALESCE(bid_totals.total_bids, 0) AS total_bids
+        """;
+    private static final String SUMMARY_JOINS = """
+        LEFT JOIN users u ON u.id = a.seller_id
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS total_bids FROM bids b WHERE b.auction_id = a.id
+        ) bid_totals ON TRUE
+        """;
+    private static final String SUMMARY_SOURCE_COLUMNS = """
+        id, title, category, current_bid, image, condition, seller_id, status,
+        start_time, end_time, created_at
+        """;
     private final JdbcTemplate jdbc;
 
     public AuctionRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
-    public List<Auction> findTop() {
-        return jdbc.query(SELECT_AUCTION + """
-            WHERE a.status = 'active' AND a.end_time > CURRENT_TIMESTAMP
-            GROUP BY a.id, u.id ORDER BY a.created_at DESC LIMIT 6
-            """, this::mapAuction);
+    public List<AuctionSummary> findTop(int limit) {
+        return jdbc.query(SUMMARY_SELECT + " FROM (SELECT " + SUMMARY_SOURCE_COLUMNS + """
+            FROM auctions
+            WHERE status = 'active'
+              AND start_time <= CURRENT_TIMESTAMP
+              AND end_time > CURRENT_TIMESTAMP
+            ORDER BY created_at DESC LIMIT ?
+            ) a
+            """ + SUMMARY_JOINS + " ORDER BY a.created_at DESC", this::mapSummary, limit);
     }
 
     public Map<String, Object> activeStats() {
@@ -45,7 +66,10 @@ public class AuctionRepository {
             SELECT COUNT(*) AS "activeLots",
                    COALESCE(SUM(current_bid), 0) AS "totalValue",
                    COALESCE(AVG(current_bid), 0) AS "averageBid"
-            FROM auctions WHERE status = 'active' AND end_time > CURRENT_TIMESTAMP
+            FROM auctions
+            WHERE status = 'active'
+              AND start_time <= CURRENT_TIMESTAMP
+              AND end_time > CURRENT_TIMESTAMP
             """);
     }
 
@@ -59,36 +83,44 @@ public class AuctionRepository {
             .stream().findFirst();
     }
 
-    public List<Auction> findRelated(long id, String category) {
-        return jdbc.query(SELECT_AUCTION + """
-            WHERE a.category = ? AND a.id != ? AND a.status = 'active' AND a.end_time > CURRENT_TIMESTAMP
-            GROUP BY a.id, u.id ORDER BY a.created_at DESC LIMIT 4
-            """, this::mapAuction, category, id);
+    public List<AuctionSummary> findRelated(long id, String category) {
+        return jdbc.query(SUMMARY_SELECT + " FROM (SELECT " + SUMMARY_SOURCE_COLUMNS + """
+            FROM auctions
+            WHERE category = ? AND id != ? AND status = 'active'
+              AND start_time <= CURRENT_TIMESTAMP AND end_time > CURRENT_TIMESTAMP
+            ORDER BY created_at DESC LIMIT 4
+            ) a
+            """ + SUMMARY_JOINS + " ORDER BY a.created_at DESC", this::mapSummary, category, id);
     }
 
     public long countSearch(String query) {
         if (query.isBlank()) {
             Long count = jdbc.queryForObject("SELECT COUNT(*) FROM auctions a " +
-                "WHERE a.status = 'active' AND a.end_time > CURRENT_TIMESTAMP", Long.class);
+                "WHERE a.status = 'active' AND a.start_time <= CURRENT_TIMESTAMP " +
+                "AND a.end_time > CURRENT_TIMESTAMP", Long.class);
             return count == null ? 0 : count;
         }
         Long count = jdbc.queryForObject("SELECT COUNT(*) FROM auctions a " +
-                "WHERE a.status = 'active' AND a.end_time > CURRENT_TIMESTAMP " +
+                "WHERE a.status = 'active' AND a.start_time <= CURRENT_TIMESTAMP " +
+                "AND a.end_time > CURRENT_TIMESTAMP " +
                 "AND a.title ILIKE ?", Long.class, "%" + query + "%");
         return count == null ? 0 : count;
     }
 
-    public List<Auction> search(String query, int limit, int offset) {
-        String sql = SELECT_AUCTION + " WHERE a.status = 'active' AND a.end_time > CURRENT_TIMESTAMP ";
+    public List<AuctionSummary> search(String query, int limit, int offset) {
+        String sql = SUMMARY_SELECT + " FROM (SELECT " + SUMMARY_SOURCE_COLUMNS +
+            " FROM auctions WHERE status = 'active' " +
+            "AND start_time <= CURRENT_TIMESTAMP AND end_time > CURRENT_TIMESTAMP ";
         List<Object> parameters = new ArrayList<>();
         if (!query.isBlank()) {
-            sql += "AND a.title ILIKE ? ";
+            sql += "AND title ILIKE ? ";
             parameters.add("%" + query + "%");
         }
-        sql += "GROUP BY a.id, u.id ORDER BY a.created_at DESC LIMIT ? OFFSET ?";
+        sql += "ORDER BY created_at DESC LIMIT ? OFFSET ?) a " + SUMMARY_JOINS +
+            " ORDER BY a.created_at DESC";
         parameters.add(limit);
         parameters.add(offset);
-        return jdbc.query(sql, this::mapAuction, parameters.toArray());
+        return jdbc.query(sql, this::mapSummary, parameters.toArray());
     }
 
     public long insert(String title, String category, String description, double startPrice,
@@ -177,6 +209,14 @@ public class AuctionRepository {
         return new Auction(rs.getLong("id"), rs.getString("title"), rs.getString("category"),
             rs.getString("description"), rs.getDouble("start_price"), rs.getDouble("current_bid"),
             rs.getString("image"), rs.getString("condition"), rs.getLong("seller_id"),
+            rs.getString("status"), TimeUtils.readInstant(rs, "start_time"),
+            TimeUtils.readInstant(rs, "end_time"), TimeUtils.readInstant(rs, "created_at"),
+            rs.getString("seller"), rs.getLong("total_bids"));
+    }
+
+    private AuctionSummary mapSummary(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return new AuctionSummary(rs.getLong("id"), rs.getString("title"), rs.getString("category"),
+            rs.getDouble("current_bid"), rs.getString("image"), rs.getString("condition"),
             rs.getString("status"), TimeUtils.readInstant(rs, "start_time"),
             TimeUtils.readInstant(rs, "end_time"), TimeUtils.readInstant(rs, "created_at"),
             rs.getString("seller"), rs.getLong("total_bids"));

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { auctionApi } from '../../../api/auctions';
+import AuctionCardSkeleton from '../../../components/feature/AuctionCardSkeleton';
 
 // Helper function to convert timeRemaining string to minutes for sorting
 const parseTimeToMinutes = (timeStr: string): number => {
@@ -17,32 +18,62 @@ const parseTimeToMinutes = (timeStr: string): number => {
 };
 
 export default function AuctionListings() {
-  const [auctions, setAuctions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedResponse = auctionApi.getCachedTopAuctions();
+  const [auctions, setAuctions] = useState<any[]>(cachedResponse?.data || []);
+  const [loading, setLoading] = useState(!cachedResponse);
   const [error, setError] = useState<string | null>(null);
-  const [auctionStats, setAuctionStats] = useState<any>(null);
+  const [auctionStats, setAuctionStats] = useState<any>(cachedResponse?.stats || null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    const fetchTop4 = async () => {
+    let active = true;
+    const fetchTopAuctions = async () => {
       try {
         setLoading(true);
         const response = await auctionApi.getTopAuctions();
+        if (!active) return;
         setAuctions(response.data || []);
         setAuctionStats(response.stats || null);
-        
         setError(null);
       } catch  {
-        setError('Failed to load auctions.');
-        setAuctions([]);
+        if (!active) return;
+        setError('Unable to load auctions.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
-    fetchTop4();
-  }, []);
+    fetchTopAuctions();
+    return () => {
+      active = false;
+    };
+  }, [reloadToken]);
 
-  if (loading) return <div>Loading auctions...</div>;
-  if (error) return <div className="text-red-500">{error}</div>;
+  if (loading && auctions.length === 0) {
+    return (
+      <section aria-label="Loading featured auctions" className="bg-gray-50 py-20">
+        <div className="mx-auto flex max-w-7xl gap-6 overflow-hidden px-6">
+          {Array.from({ length: 6 }, (_, index) => (
+            <AuctionCardSkeleton key={index} compact />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (error && auctions.length === 0) {
+    return (
+      <section className="bg-gray-50 py-20 text-center">
+        <p className="mb-4 text-gray-700">{error}</p>
+        <button
+          type="button"
+          onClick={() => setReloadToken(value => value + 1)}
+          className="rounded-lg bg-[#8B2635] px-5 py-2 text-white hover:bg-[#7A1F2B]"
+        >
+          Try again
+        </button>
+      </section>
+    );
+  }
 
   const endingSoonAuctions = [...auctions]
     .sort((a, b) => parseTimeToMinutes(a.timeRemaining) - parseTimeToMinutes(b.timeRemaining))
@@ -65,9 +96,18 @@ export default function AuctionListings() {
             <p className="text-xl text-gray-600">Discover unique items and place your bids</p>
           </div>
           <div className="self-start sm:self-auto bg-gray-800 text-white px-6 py-3 rounded-full">
-            <span className="font-semibold">{auctionStats.activeLots} Active Lots</span>
+            <span className="font-semibold">{auctionStats?.activeLots ?? auctions.length} Active Lots</span>
           </div>
         </div>
+
+        {error && (
+          <div className="mt-6 flex items-center justify-center gap-3 text-sm text-amber-800">
+            <span>{error} Showing the latest session copy.</span>
+            <button type="button" onClick={() => setReloadToken(value => value + 1)} className="underline">
+              Try again
+            </button>
+          </div>
+        )}
 
         {/* Auction Cards Grid - Top 10 ending soonest */}
         <div className="flex gap-6 overflow-x-auto pb-4">

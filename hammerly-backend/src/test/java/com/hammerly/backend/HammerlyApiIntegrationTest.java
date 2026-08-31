@@ -15,6 +15,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hammerly.backend.config.DatabaseInitializer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +27,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.support.EncodedResource;
+import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -87,6 +94,60 @@ class HammerlyApiIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.total").value(1))
             .andExpect(jsonPath("$.totalPages").value(1));
+    }
+
+    @Test
+    void explicitDemoSeedIsIdempotentAndPreservesRealAuctions() throws Exception {
+        long realAuctionId = auctionId("Vintage Pocket Watch");
+
+        runDemoSeed();
+        runDemoSeed();
+
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject("""
+            SELECT COUNT(*) FROM auctions a JOIN users u ON u.id = a.seller_id
+            WHERE u.email LIKE 'demo-seller-%@hammerly.example'
+            """, Long.class)).isEqualTo(100L);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForMap("""
+            SELECT
+              COUNT(*) FILTER (WHERE a.status = 'active' AND a.start_time <= now() AND a.end_time > now()) AS active,
+              COUNT(*) FILTER (WHERE a.status = 'active' AND a.start_time > now()) AS upcoming,
+              COUNT(*) FILTER (WHERE a.status = 'ended') AS ended
+            FROM auctions a JOIN users u ON u.id = a.seller_id
+            WHERE u.email LIKE 'demo-seller-%@hammerly.example'
+            """)).containsEntry("active", 70L).containsEntry("upcoming", 15L).containsEntry("ended", 15L);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM auctions WHERE id = ?", Long.class, realAuctionId)).isEqualTo(1L);
+    }
+
+    @Test
+    void auctionSearchPaginatesSummariesAndExcludesUpcomingRows() throws Exception {
+        runDemoSeed();
+
+        MvcResult firstPage = mvc.perform(get("/api/auctions/search").param("page", "1").param("size", "12"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.success").value(true))
+            .andExpect(jsonPath("$.data", hasSize(12)))
+            .andExpect(jsonPath("$.total").value(72))
+            .andExpect(jsonPath("$.limit").value(12))
+            .andExpect(jsonPath("$.totalPages").value(6))
+            .andExpect(jsonPath("$.data[0].description").doesNotExist())
+            .andExpect(jsonPath("$.data[0].sellerId").doesNotExist())
+            .andReturn();
+        for (JsonNode auction : body(firstPage).path("data")) {
+            org.assertj.core.api.Assertions.assertThat(Instant.parse(auction.path("startTime").asText()))
+                .isBeforeOrEqualTo(Instant.now());
+        }
+    }
+
+    @Test
+    void auctionListReturnsAValidEmptyPage() throws Exception {
+        jdbc.update("UPDATE auctions SET status = 'ended'");
+
+        mvc.perform(get("/api/auctions/search").param("page", "1").param("size", "12"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data", hasSize(0)))
+            .andExpect(jsonPath("$.total").value(0))
+            .andExpect(jsonPath("$.totalPages").value(0));
     }
 
     @Test
@@ -329,6 +390,24 @@ class HammerlyApiIntegrationTest {
 
     private long auctionId(String title) {
         return jdbc.queryForObject("SELECT id FROM auctions WHERE title = ?", Long.class, title);
+    }
+
+    private void runDemoSeed() throws Exception {
+        Path current = Path.of("").toAbsolutePath();
+        Path seedFile = null;
+        for (int level = 0; level < 4 && current != null; level++) {
+            Path candidate = current.resolve("scripts").resolve("seed-demo-auctions.sql");
+            if (Files.isRegularFile(candidate)) {
+                seedFile = candidate;
+                break;
+            }
+            current = current.getParent();
+        }
+        if (seedFile == null) throw new IllegalStateException("scripts/seed-demo-auctions.sql not found");
+        try (Connection connection = java.util.Objects.requireNonNull(jdbc.getDataSource()).getConnection()) {
+            ScriptUtils.executeSqlScript(connection,
+                new EncodedResource(new FileSystemResource(seedFile), java.nio.charset.StandardCharsets.UTF_8));
+        }
     }
 
     private JsonNode body(MvcResult result) throws Exception {

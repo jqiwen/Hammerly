@@ -5,6 +5,7 @@ import com.hammerly.backend.dto.AuctionDtos.CreateAuctionRequest;
 import com.hammerly.backend.cache.MarketplaceCache;
 import com.hammerly.backend.exception.ApiException;
 import com.hammerly.backend.model.Auction;
+import com.hammerly.backend.model.AuctionSummary;
 import com.hammerly.backend.repository.AuctionRepository;
 import com.hammerly.backend.repository.AuctionRepository.OwnerRow;
 import com.hammerly.backend.repository.BidRepository;
@@ -17,12 +18,18 @@ import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuctionService {
+    private static final Logger log = LoggerFactory.getLogger(AuctionService.class);
+    private static final int TOP_LIMIT = 12;
+    private static final int DEFAULT_PAGE_SIZE = 12;
+    private static final int MAX_PAGE_SIZE = 50;
     private final AuctionRepository auctions;
     private final BidRepository bids;
     private final WatchlistRepository watchlist;
@@ -40,8 +47,17 @@ public class AuctionService {
     }
 
     public Map<String, Object> top() {
+        long requestStartedAt = System.nanoTime();
+        long redisStartedAt = System.nanoTime();
         var cached = cache.getTop();
-        if (cached.isPresent()) return cached.orElseThrow();
+        long redisMillis = elapsedMillis(redisStartedAt);
+        if (cached.isPresent()) {
+            Map<String, Object> response = cached.orElseThrow();
+            logListLatency("get-top", true, redisMillis, 0, requestStartedAt,
+                listResultCount(response));
+            return response;
+        }
+        long databaseStartedAt = System.nanoTime();
         Map<String, Object> rawStats = auctions.activeStats();
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("activeLots", number(rawStats.get("activeLots")).longValue());
@@ -49,8 +65,11 @@ public class AuctionService {
         stats.put("averageBid", Math.round(number(rawStats.get("averageBid")).doubleValue()));
         stats.put("completedToday", 32);
         Map<String, Object> response = responseWithData(
-            auctions.findTop().stream().map(this::mapAuction).toList(), stats);
+            auctions.findTop(TOP_LIMIT).stream().map(this::mapSummary).toList(), stats);
+        long databaseMillis = elapsedMillis(databaseStartedAt);
         cache.putTop(response);
+        logListLatency("get-top", false, redisMillis, databaseMillis, requestStartedAt,
+            listResultCount(response));
         return response;
     }
 
@@ -77,21 +96,40 @@ public class AuctionService {
         long id = parseId(rawId);
         String category = auctions.findCategory(id)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Auction not found"));
-        return successData(auctions.findRelated(id, category).stream().map(this::mapAuction).toList());
+        return successData(auctions.findRelated(id, category).stream().map(this::mapSummary).toList());
     }
 
-    public Map<String, Object> search(String query, String rawPage) {
+    public Map<String, Object> search(String query, String rawPage, String rawSize) {
+        long requestStartedAt = System.nanoTime();
         String resolvedQuery = query == null ? "" : query.trim();
         int page = parsePage(rawPage);
-        int limit = 9;
+        int limit = parsePageSize(rawSize);
         int offset = Math.max(0, (page - 1) * limit);
+        boolean cacheable = resolvedQuery.isBlank() && page == 1 && limit == DEFAULT_PAGE_SIZE;
+        long redisMillis = 0;
+        if (cacheable) {
+            long redisStartedAt = System.nanoTime();
+            var cached = cache.getFirstPage();
+            redisMillis = elapsedMillis(redisStartedAt);
+            if (cached.isPresent()) {
+                Map<String, Object> response = cached.orElseThrow();
+                logListLatency("search", true, redisMillis, 0, requestStartedAt,
+                    listResultCount(response));
+                return response;
+            }
+        }
+        long databaseStartedAt = System.nanoTime();
         long total = auctions.countSearch(resolvedQuery);
         Map<String, Object> response = successData(
-            auctions.search(resolvedQuery, limit, offset).stream().map(this::mapAuction).toList());
+            auctions.search(resolvedQuery, limit, offset).stream().map(this::mapSummary).toList());
         response.put("total", total);
         response.put("page", page);
         response.put("totalPages", (int) Math.ceil((double) total / limit));
         response.put("limit", limit);
+        long databaseMillis = elapsedMillis(databaseStartedAt);
+        if (cacheable) cache.putFirstPage(response);
+        logListLatency("search", false, redisMillis, databaseMillis, requestStartedAt,
+            listResultCount(response));
         return response;
     }
 
@@ -114,6 +152,9 @@ public class AuctionService {
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Auction not found"));
         if (!"active".equals(auction.status())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Auction is not active");
+        }
+        if (TimeUtils.parse(auction.startTime()).isAfter(Instant.now())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Auction has not started");
         }
         if (!TimeUtils.parse(auction.endTime()).isAfter(Instant.now())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Auction has ended");
@@ -283,6 +324,25 @@ public class AuctionService {
         return result;
     }
 
+    private Map<String, Object> mapSummary(AuctionSummary auction) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", auction.id());
+        result.put("title", auction.title());
+        result.put("category", auction.category());
+        result.put("currentBid", auction.currentBid());
+        result.put("image", auction.image());
+        result.put("condition", auction.condition());
+        result.put("status", auction.status());
+        result.put("startTime", auction.startTime());
+        result.put("endTime", auction.endTime());
+        result.put("createdAt", auction.createdAt());
+        result.put("seller", truthy(auction.seller()) ? auction.seller() : "Seller");
+        result.put("totalBids", auction.totalBids());
+        result.put("timeRemaining", TimeUtils.timeRemaining(auction.endTime()));
+        result.put("progress", TimeUtils.progress(auction.startTime(), auction.endTime()));
+        return result;
+    }
+
     private String composeDescription(CreateAuctionRequest request) {
         StringBuilder value = new StringBuilder(truthy(request.description()) ? request.description() : "");
         appendIfTruthy(value, "\nReserve Price: ", request.reservePrice());
@@ -331,6 +391,30 @@ public class AuctionService {
         } catch (NumberFormatException exception) {
             return 1;
         }
+    }
+
+    private int parsePageSize(String rawSize) {
+        if (rawSize == null || rawSize.isBlank()) return DEFAULT_PAGE_SIZE;
+        try {
+            return Math.clamp(Integer.parseInt(rawSize), 1, MAX_PAGE_SIZE);
+        } catch (NumberFormatException exception) {
+            return DEFAULT_PAGE_SIZE;
+        }
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return Math.round((System.nanoTime() - startedAtNanos) / 1_000_000.0);
+    }
+
+    private int listResultCount(Map<String, Object> response) {
+        Object data = response.get("data");
+        return data instanceof List<?> list ? list.size() : 0;
+    }
+
+    private void logListLatency(String endpoint, boolean cacheHit, long redisMillis,
+                                long databaseMillis, long requestStartedAt, int resultCount) {
+        log.info("auction_list_latency endpoint={} cacheHit={} redisMs={} dbMs={} totalMs={} resultCount={}",
+            endpoint, cacheHit, redisMillis, databaseMillis, elapsedMillis(requestStartedAt), resultCount);
     }
 
     private long parseId(String rawId) {

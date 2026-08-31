@@ -49,8 +49,9 @@ public class AuctionController {
     @GetMapping("/search")
     @Operation(summary = "Search auctions", tags = "Auctions")
     Map<String, Object> search(@RequestParam(required = false, defaultValue = "") String q,
-                               @RequestParam(required = false, defaultValue = "1") String page) {
-        return service.search(q, page);
+                               @RequestParam(required = false, defaultValue = "1") String page,
+                               @RequestParam(required = false, defaultValue = "12") String size) {
+        return service.search(q, page, size);
     }
 
     @GetMapping({"/bid/{id}", "/{id}/bid"})
