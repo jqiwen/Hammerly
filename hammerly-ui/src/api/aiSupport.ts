@@ -45,6 +45,7 @@ type StreamAiSupportOptions = {
   question: string;
   history: AiSupportHistoryMessage[];
   conversationId: string;
+  standaloneFaq?: boolean;
   onChunk: (chunk: string) => void;
   onSources?: (sources: AiSupportSource[]) => void;
   signal?: AbortSignal;
@@ -96,6 +97,7 @@ export const streamAiSupport = async ({
   question,
   history,
   conversationId,
+  standaloneFaq = false,
   onChunk,
   onSources,
   signal,
@@ -116,6 +118,7 @@ export const streamAiSupport = async ({
         message: trimmedQuestion,
         history: history.slice(-AI_SUPPORT_MAX_HISTORY_MESSAGES),
         conversationId,
+        standaloneFaq,
       }),
       signal,
     });

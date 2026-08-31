@@ -56,8 +56,8 @@ export default function AiSupportWidget() {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [isOpen]);
 
-  const submitQuestion = async (questionToSubmit = question) => {
-    const accepted = await askQuestion(questionToSubmit);
+  const submitQuestion = async (questionToSubmit = question, standaloneFaq = false) => {
+    const accepted = await askQuestion(questionToSubmit, { standaloneFaq });
     if (accepted) {
       setQuestion('');
     }
@@ -76,7 +76,7 @@ export default function AiSupportWidget() {
           question={question}
           onQuestionChange={setQuestion}
           onSubmit={() => void submitQuestion()}
-          onQuickQuestion={(quickQuestion) => void submitQuestion(quickQuestion)}
+          onQuickQuestion={(quickQuestion) => void submitQuestion(quickQuestion, true)}
           onClose={() => setIsOpen(false)}
           isLoading={isLoading}
           streamingMessageId={streamingMessageId}

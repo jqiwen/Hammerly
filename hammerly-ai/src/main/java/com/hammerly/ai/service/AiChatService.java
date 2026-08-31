@@ -2,6 +2,10 @@ package com.hammerly.ai.service;
 
 import com.hammerly.ai.cache.AiCacheKeyFactory;
 import com.hammerly.ai.cache.AiResponseCache;
+import com.hammerly.ai.cache.GroundedFaqCache;
+import com.hammerly.ai.cache.GroundedFaqCacheEntry;
+import com.hammerly.ai.cache.GroundedFaqCacheProbe;
+import com.hammerly.ai.cache.StandaloneFaqPolicy;
 import com.hammerly.ai.context.AiContextBuilder;
 import com.hammerly.ai.context.BuiltAiContext;
 import com.hammerly.ai.conversation.ConversationHistory;
@@ -48,13 +52,16 @@ public class AiChatService {
     private final AiEventPublisher eventPublisher;
     private final Clock clock;
     private final AiContextBuilder contextBuilder;
+    private final GroundedFaqCache groundedFaqCache;
+    private final StandaloneFaqPolicy standaloneFaqPolicy;
 
     @Autowired
     public AiChatService(AiModelClient modelClient, ConversationStore conversationStore,
                          AiResponseCache responseCache, AiCacheKeyFactory cacheKeyFactory,
                          AiRateLimiter rateLimiter, AiMetrics metrics,
                          AiEventPublisher eventPublisher, Clock clock,
-                         AiContextBuilder contextBuilder) {
+                         AiContextBuilder contextBuilder, GroundedFaqCache groundedFaqCache,
+                         StandaloneFaqPolicy standaloneFaqPolicy) {
         this.modelClient = modelClient;
         this.conversationStore = conversationStore;
         this.responseCache = responseCache;
@@ -64,6 +71,18 @@ public class AiChatService {
         this.eventPublisher = eventPublisher;
         this.clock = clock;
         this.contextBuilder = contextBuilder;
+        this.groundedFaqCache = groundedFaqCache;
+        this.standaloneFaqPolicy = standaloneFaqPolicy;
+    }
+
+    public AiChatService(AiModelClient modelClient, ConversationStore conversationStore,
+                         AiResponseCache responseCache, AiCacheKeyFactory cacheKeyFactory,
+                         AiRateLimiter rateLimiter, AiMetrics metrics,
+                         AiEventPublisher eventPublisher, Clock clock,
+                         AiContextBuilder contextBuilder) {
+        this(modelClient, conversationStore, responseCache, cacheKeyFactory, rateLimiter,
+            metrics, eventPublisher, clock, contextBuilder, GroundedFaqCache.disabled(),
+            new StandaloneFaqPolicy());
     }
 
     public AiChatService(AiModelClient modelClient, ConversationStore conversationStore,
@@ -79,11 +98,21 @@ public class AiChatService {
         long startedAt = System.nanoTime();
         metrics.aiRequestStarted();
         try {
+            GroundedFaqCacheProbe faqProbe = fastFaqProbe(request);
+            if (faqProbe.entry().isPresent()) {
+                GroundedFaqCacheEntry entry = faqProbe.entry().orElseThrow();
+                appendExchange(userId, request.conversationId(), request.message(),
+                    entry.answer(), List.of()).ifPresent(this::publishEventsSafely);
+                metrics.requestCompleted("success", startedAt);
+                log.info("AI chat grounded FAQ cache hit");
+                return new AiChatResult(entry.answer(), rateLimit, entry.sources());
+            }
             PreparedRequest prepared = prepare(userId, request);
             Optional<String> cached = findCached(prepared);
             if (cached.isPresent()) {
                 String answer = cached.orElseThrow();
                 prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
+                cacheGroundedFaq(request, prepared, answer);
                 appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
                     .ifPresent(this::publishEventsSafely);
                 metrics.requestCompleted("success", startedAt);
@@ -98,6 +127,7 @@ public class AiChatService {
                     throw new AiProviderUnavailableException("AI provider returned an empty response.");
                 }
                 responseCache.put(prepared.cacheKey(), answer);
+                cacheGroundedFaq(request, prepared, answer);
                 appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
                     .ifPresent(this::publishEventsSafely);
                 metrics.requestCompleted("success", startedAt);
@@ -131,14 +161,36 @@ public class AiChatService {
         AiRequestLatency latency = AiRequestLatency.start(coreAiStartedAtEpochMs);
         metrics.aiRequestStarted();
         try {
+            GroundedFaqCacheProbe faqProbe = fastFaqProbe(request);
+            latency.faqCacheLookup(faqProbe.durationMs(), faqProbe.entry().isPresent());
+            if (faqProbe.entry().isPresent()) {
+                latency.cacheHit();
+                GroundedFaqCacheEntry entry = faqProbe.entry().orElseThrow();
+                AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
+                Flux<String> fastStream = Flux.just(entry.answer())
+                    .doOnComplete(() -> appendExchange(userId, request.conversationId(),
+                        request.message(), entry.answer(), List.of()).ifPresent(completedTurn::set))
+                    .doFinally(signal -> {
+                        metrics.requestCompleted(requestOutcome(signal), startedAt);
+                        metrics.aiRequestFinished();
+                        if (signal == SignalType.ON_COMPLETE) {
+                            Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
+                        }
+                    });
+                log.info("AI stream grounded FAQ cache hit");
+                return new AiStreamResult(fastStream, rateLimit, entry.sources(), latency);
+            }
             PreparedRequest prepared = prepare(userId, request);
-            latency.contextBuilt(prepared.contextDurationMs(), prepared.ragDurationMs(),
-                prepared.embeddingDurationMs(), prepared.ragSearchDurationMs());
+            latency.contextBuilt(prepared.contextDurationMs(), prepared.summaryDurationMs(),
+                prepared.ragDurationMs(), prepared.knowledgeVersionDurationMs(),
+                prepared.ragCacheDurationMs(), prepared.embeddingDurationMs(),
+                prepared.ragSearchDurationMs());
             Optional<String> cached = findCached(prepared);
             if (cached.isPresent()) {
                 latency.cacheHit();
                 String answer = cached.orElseThrow();
                 prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
+                cacheGroundedFaq(request, prepared, answer);
                 log.info("AI stream cache hit");
                 AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
                 Flux<String> cachedStream = Flux.just(answer)
@@ -173,6 +225,7 @@ public class AiChatService {
                     String answer = completedResponse.toString();
                     if (StringUtils.hasText(answer)) {
                         responseCache.put(prepared.cacheKey(), answer);
+                        cacheGroundedFaq(request, prepared, answer);
                         appendExchange(userId, request.conversationId(), request.message(), answer,
                             prepared).ifPresent(completedTurn::set);
                     }
@@ -239,8 +292,10 @@ public class AiChatService {
             built.systemContext());
         return new PreparedRequest(new ModelRequest(built.messages(), built.question(),
             built.systemContext()), snapshot, cacheKey, retryCacheKey, built.sources(),
-            built.contextDurationMs(), built.ragDurationMs(), built.embeddingDurationMs(),
-            built.ragSearchDurationMs());
+            built.knowledgeBaseVersion(), built.contextDurationMs(), built.summaryDurationMs(),
+            built.ragDurationMs(),
+            built.knowledgeVersionDurationMs(), built.ragCacheDurationMs(),
+            built.embeddingDurationMs(), built.ragSearchDurationMs());
     }
 
     private String cacheMaterial(BuiltAiContext built) {
@@ -255,6 +310,19 @@ public class AiChatService {
             }
         }
         return responseCache.get(prepared.cacheKey());
+    }
+
+    private GroundedFaqCacheProbe fastFaqProbe(ChatRequest request) {
+        if (!standaloneFaqPolicy.allowsFastCache(request)) {
+            return GroundedFaqCacheProbe.unavailable();
+        }
+        return groundedFaqCache.lookup(request.message());
+    }
+
+    private void cacheGroundedFaq(ChatRequest request, PreparedRequest prepared, String answer) {
+        if (!standaloneFaqPolicy.allowsFastCache(request)) return;
+        groundedFaqCache.put(request.message(), prepared.knowledgeBaseVersion(), answer,
+            prepared.sources());
     }
 
     private Optional<String> retryCacheKey(String userId, ChatRequest request,
@@ -280,6 +348,13 @@ public class AiChatService {
     private Optional<SuccessfulAiTurn> appendExchange(String userId, String conversationId,
                                                        String question, String answer,
                                                        PreparedRequest prepared) {
+        return appendExchange(userId, conversationId, question, answer,
+            prepared.conversationSnapshot());
+    }
+
+    private Optional<SuccessfulAiTurn> appendExchange(String userId, String conversationId,
+                                                       String question, String answer,
+                                                       List<ConversationMessage> conversationSnapshot) {
         Instant timestamp = clock.instant();
         ConversationAppendResult result = conversationStore.append(userId, conversationId, List.of(
             new ConversationMessage(ChatRole.USER, question, timestamp),
@@ -290,7 +365,7 @@ public class AiChatService {
         }
 
         List<SummaryMessage> snapshot = new ArrayList<>();
-        for (ConversationMessage message : prepared.conversationSnapshot()) {
+        for (ConversationMessage message : conversationSnapshot) {
             snapshot.add(new SummaryMessage(
                 message.role(), message.content(), message.timestamp()));
         }
@@ -338,8 +413,12 @@ public class AiChatService {
                                    String cacheKey,
                                    Optional<String> retryCacheKey,
                                    List<com.hammerly.ai.rag.RagSource> sources,
+                                   long knowledgeBaseVersion,
                                    long contextDurationMs,
+                                   long summaryDurationMs,
                                    long ragDurationMs,
+                                   long knowledgeVersionDurationMs,
+                                   long ragCacheDurationMs,
                                    long embeddingDurationMs,
                                    long ragSearchDurationMs) {
         List<ChatMessage> context() {

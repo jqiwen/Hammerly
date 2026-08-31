@@ -11,6 +11,11 @@ import com.hammerly.ai.redis.RedisStateClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -31,15 +36,36 @@ public class ConversationContextBuilder implements AiContextBuilder {
     private final RagRetrievalService rag;
     private final AiContextProperties properties;
     private final AiMetrics metrics;
+    private final Executor contextExecutor;
 
+    @Autowired
     public ConversationContextBuilder(RedisStateClient redis, ObjectMapper objectMapper,
                                       RagRetrievalService rag, AiContextProperties properties,
-                                      AiMetrics metrics) {
+                                      AiMetrics metrics,
+                                      @Qualifier("contextExecutor") ExecutorService contextExecutor) {
         this.redis = redis;
         this.objectMapper = objectMapper;
         this.rag = rag;
         this.properties = properties;
         this.metrics = metrics;
+        this.contextExecutor = contextExecutor;
+    }
+
+    ConversationContextBuilder(RedisStateClient redis, ObjectMapper objectMapper,
+                               RagRetrievalService rag, AiContextProperties properties,
+                               AiMetrics metrics) {
+        this(redis, objectMapper, rag, properties, metrics, Runnable::run);
+    }
+
+    ConversationContextBuilder(RedisStateClient redis, ObjectMapper objectMapper,
+                               RagRetrievalService rag, AiContextProperties properties,
+                               AiMetrics metrics, Executor contextExecutor) {
+        this.redis = redis;
+        this.objectMapper = objectMapper;
+        this.rag = rag;
+        this.properties = properties;
+        this.metrics = metrics;
+        this.contextExecutor = contextExecutor;
     }
 
     @Override
@@ -48,22 +74,42 @@ public class ConversationContextBuilder implements AiContextBuilder {
         long startedAt = System.nanoTime();
         try {
             List<ChatMessage> messages = boundedRecent(storedContext);
-            String summary = readSummary(userId, conversationId);
             int usedChars = question.length()
                 + messages.stream().mapToInt(message -> message.content().length()).sum();
 
-            long ragStartedAt = System.nanoTime();
-            RagResult result = rag.retrieve(question);
-            long ragDurationMs = elapsedMillis(ragStartedAt);
-            Grounding grounding = grounding(summary, result.chunks(), usedChars);
+            CompletableFuture<TimedSummary> summaryFuture = CompletableFuture.supplyAsync(
+                () -> readSummaryTimed(userId, conversationId), contextExecutor);
+            CompletableFuture<TimedRag> ragFuture = CompletableFuture.supplyAsync(
+                () -> retrieveTimed(question), contextExecutor);
+            TimedSummary summary = summaryFuture.join();
+            TimedRag ragResult = ragFuture.join();
+            RagResult result = ragResult.result();
+            Grounding grounding = grounding(summary.value(), result.chunks(), usedChars);
             long totalDurationMs = elapsedMillis(startedAt);
-            long contextDurationMs = Math.max(0, totalDurationMs - ragDurationMs);
+            long contextOverheadMs = Math.max(0, totalDurationMs
+                - Math.max(summary.durationMs(), ragResult.durationMs()));
             return new BuiltAiContext(messages, question, grounding.systemContext(),
                 grounding.included().stream().map(RagChunk::citation).toList(),
-                contextDurationMs, ragDurationMs, result.embeddingDurationMs(),
-                result.searchDurationMs());
+                result.knowledgeVersion(), contextOverheadMs, summary.durationMs(),
+                ragResult.durationMs(), result.knowledgeVersionDurationMs(), result.cacheDurationMs(),
+                result.embeddingDurationMs(), result.searchDurationMs());
         } finally {
             metrics.contextBuilt(startedAt);
+        }
+    }
+
+    private TimedSummary readSummaryTimed(String userId, String conversationId) {
+        long startedAt = System.nanoTime();
+        return new TimedSummary(readSummary(userId, conversationId), elapsedMillis(startedAt));
+    }
+
+    private TimedRag retrieveTimed(String question) {
+        long startedAt = System.nanoTime();
+        try {
+            return new TimedRag(rag.retrieve(question), elapsedMillis(startedAt));
+        } catch (RuntimeException exception) {
+            metrics.ragFailure("context_retrieval");
+            return new TimedRag(RagResult.empty(), elapsedMillis(startedAt));
         }
     }
 
@@ -130,5 +176,11 @@ public class ConversationContextBuilder implements AiContextBuilder {
     }
 
     private record Grounding(String systemContext, List<RagChunk> included) {
+    }
+
+    private record TimedSummary(String value, long durationMs) {
+    }
+
+    private record TimedRag(RagResult result, long durationMs) {
     }
 }

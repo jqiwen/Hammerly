@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -154,6 +155,52 @@ class PgVectorRagRetrievalServiceTest {
         verify(embeddings, never()).embed(anyString());
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void localKnowledgeVersionCacheRemovesDatabaseRoundTripUntilTtlExpires() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        RedisStateClient redis = mock(RedisStateClient.class);
+        QueryEmbeddingProvider embeddings = input -> new float[] {1f, 0f};
+        when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(9L);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+            .thenReturn(List.of());
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        PgVectorRagRetrievalService service = service(jdbc, redis, embeddings, registry,
+            properties(Duration.ofSeconds(1)));
+
+        service.retrieve("first question");
+        service.retrieve("second question");
+
+        verify(jdbc, times(1)).queryForObject(
+            "SELECT version FROM hammerly.knowledge_base_state WHERE id = 1", Long.class);
+        assertThat(registry.get("rag.kb_version").tag("source", "db_load")
+            .counter().count()).isEqualTo(1);
+        assertThat(registry.get("rag.kb_version").tag("source", "local_hit")
+            .counter().count()).isEqualTo(1);
+    }
+
+    @Test
+    void localKnowledgeVersionNeverLoadsDatabaseAndOnlyReturnsWarmSnapshot() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        RedisStateClient redis = mock(RedisStateClient.class);
+        QueryEmbeddingProvider embeddings = input -> new float[] {1f, 0f};
+        when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(12L);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+            .thenReturn(List.of());
+        PgVectorRagRetrievalService service = service(jdbc, redis, embeddings,
+            new SimpleMeterRegistry(), properties(Duration.ofSeconds(1)));
+
+        assertThat(service.localKnowledgeVersion().available()).isFalse();
+        verify(jdbc, never()).queryForObject(anyString(), eq(Long.class));
+
+        service.retrieve("warm the version");
+
+        assertThat(service.localKnowledgeVersion().available()).isTrue();
+        assertThat(service.localKnowledgeVersion().value()).isEqualTo(12);
+        verify(jdbc, times(1)).queryForObject(
+            "SELECT version FROM hammerly.knowledge_base_state WHERE id = 1", Long.class);
+    }
+
     private PgVectorRagRetrievalService service(JdbcTemplate jdbc, RedisStateClient redis,
                                                  QueryEmbeddingProvider embeddings,
                                                  SimpleMeterRegistry registry,
@@ -163,7 +210,8 @@ class PgVectorRagRetrievalServiceTest {
     }
 
     private RagProperties properties(Duration timeout) {
-        return new RagProperties(true, 4, 0.25, Duration.ofMinutes(5), timeout,
+        return new RagProperties(true, 4, 0.25, Duration.ofMinutes(5),
+            Duration.ofSeconds(45), timeout,
             "deterministic", "deterministic-v1", 1536, "https://api.openai.com", "",
             "jdbc:postgresql://localhost/test", "", "", "disable");
     }

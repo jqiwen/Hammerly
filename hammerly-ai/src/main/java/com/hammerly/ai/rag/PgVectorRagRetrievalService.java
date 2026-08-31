@@ -14,6 +14,8 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -32,7 +34,9 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
     private final RagProperties properties;
     private final AiMetrics metrics;
     private final ExecutorService executor;
+    private final AtomicReference<VersionSnapshot> knowledgeVersion = new AtomicReference<>();
 
+    @Autowired
     public PgVectorRagRetrievalService(JdbcTemplate ragJdbcTemplate,
                                        QueryEmbeddingProvider embeddings,
                                        RedisStateClient redis,
@@ -63,14 +67,49 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
         }
     }
 
+    @Override
+    public RagKnowledgeVersion knowledgeVersion() {
+        Future<RagKnowledgeVersion> future = executor.submit(() -> {
+            long startedAt = System.nanoTime();
+            VersionValue value = knowledgeVersionValue();
+            return new RagKnowledgeVersion(value.version(), elapsedMillis(startedAt),
+                value.localHit(), true);
+        });
+        try {
+            return future.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
+        } catch (Exception exception) {
+            future.cancel(true);
+            metrics.ragFailure("knowledge_version");
+            return RagKnowledgeVersion.unavailable();
+        }
+    }
+
+    @Override
+    public RagKnowledgeVersion localKnowledgeVersion() {
+        long startedAt = System.nanoTime();
+        VersionSnapshot current = knowledgeVersion.get();
+        if (current == null || System.nanoTime() >= current.expiresAtNanos()) {
+            return RagKnowledgeVersion.unavailable();
+        }
+        metrics.ragKnowledgeVersionLocalHit();
+        return new RagKnowledgeVersion(current.version(), elapsedMillis(startedAt), true, true);
+    }
+
     private RagResult retrieveBounded(String query) {
         try {
-            Long versionValue = jdbc.queryForObject(
-                "SELECT version FROM hammerly.knowledge_base_state WHERE id = 1", Long.class);
-            long version = versionValue == null ? 0 : versionValue;
+            long versionStartedAt = System.nanoTime();
+            VersionValue versionValue = knowledgeVersionValue();
+            long versionDurationMs = elapsedMillis(versionStartedAt);
+            long version = versionValue.version();
             String cacheKey = cacheKey(query, version);
+            long cacheStartedAt = System.nanoTime();
             Optional<RagResult> cached = readCache(cacheKey);
-            if (cached.isPresent()) return cached.orElseThrow().asCacheHit();
+            long cacheDurationMs = elapsedMillis(cacheStartedAt);
+            if (cached.isPresent()) {
+                return new RagResult(cached.orElseThrow().chunks(), version,
+                    versionDurationMs, cacheDurationMs, 0, 0,
+                    versionValue.localHit(), true);
+            }
 
             long embeddingStarted = System.nanoTime();
             float[] vector = embeddings.embed(query);
@@ -96,8 +135,9 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
                 literal, literal, properties.similarityThreshold(), literal, properties.topK());
             long searchDurationMs = elapsedMillis(searchStarted);
             metrics.ragSearchCompleted(searchStarted, chunks.size());
-            RagResult result = new RagResult(chunks, version, embeddingDurationMs,
-                searchDurationMs, false);
+            RagResult result = new RagResult(chunks, version, versionDurationMs,
+                cacheDurationMs, embeddingDurationMs, searchDurationMs,
+                versionValue.localHit(), false);
             writeCache(cacheKey, result);
             return result;
         } catch (RuntimeException exception) {
@@ -105,6 +145,30 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
             log.warn("RAG retrieval failed fast; continuing without knowledge errorType={}",
                 rootCause(exception).getClass().getSimpleName());
             return RagResult.empty();
+        }
+    }
+
+    private VersionValue knowledgeVersionValue() {
+        long now = System.nanoTime();
+        VersionSnapshot current = knowledgeVersion.get();
+        if (current != null && now < current.expiresAtNanos()) {
+            metrics.ragKnowledgeVersionLocalHit();
+            return new VersionValue(current.version(), true);
+        }
+        synchronized (knowledgeVersion) {
+            now = System.nanoTime();
+            current = knowledgeVersion.get();
+            if (current != null && now < current.expiresAtNanos()) {
+                metrics.ragKnowledgeVersionLocalHit();
+                return new VersionValue(current.version(), true);
+            }
+            Long loaded = jdbc.queryForObject(
+                "SELECT version FROM hammerly.knowledge_base_state WHERE id = 1", Long.class);
+            long version = loaded == null ? 0 : loaded;
+            knowledgeVersion.set(new VersionSnapshot(version,
+                now + properties.knowledgeVersionCacheTtl().toNanos()));
+            metrics.ragKnowledgeVersionDbLoad();
+            return new VersionValue(version, false);
         }
     }
 
@@ -179,5 +243,11 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
 
     private long elapsedMillis(long startedAt) {
         return Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
+    }
+
+    private record VersionSnapshot(long version, long expiresAtNanos) {
+    }
+
+    private record VersionValue(long version, boolean localHit) {
     }
 }

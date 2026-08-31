@@ -9,6 +9,7 @@ class DeterministicQueryEmbeddingProviderTest {
     @Test
     void createsStableFreeEmbeddingsWithoutProviderCalls() {
         RagProperties properties = new RagProperties(false, 4, 0.2, Duration.ofMinutes(1),
+            Duration.ofSeconds(45),
             Duration.ofSeconds(1), "deterministic", "unused", 64,
             "https://example.invalid", "", "", "", "", "disable");
         DeterministicQueryEmbeddingProvider provider =

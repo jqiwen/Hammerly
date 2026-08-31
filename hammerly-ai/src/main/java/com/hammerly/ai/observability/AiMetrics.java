@@ -36,6 +36,14 @@ public class AiMetrics {
         registry.counter("redis.cache.misses").increment();
     }
 
+    public void groundedFaqCacheHit() {
+        registry.counter("hammerly.ai.grounded_faq_cache", "result", "hit").increment();
+    }
+
+    public void groundedFaqCacheMiss() {
+        registry.counter("hammerly.ai.grounded_faq_cache", "result", "miss").increment();
+    }
+
     public void rateLimitAllowed() {
         registry.counter("hammerly.ai.rate_limit.allowed").increment();
     }
@@ -193,6 +201,14 @@ public class AiMetrics {
 
     public void ragCacheMiss() {
         registry.counter("rag.cache.misses").increment();
+    }
+
+    public void ragKnowledgeVersionLocalHit() {
+        registry.counter("rag.kb_version", "source", "local_hit").increment();
+    }
+
+    public void ragKnowledgeVersionDbLoad() {
+        registry.counter("rag.kb_version", "source", "db_load").increment();
     }
 
     public void ragFailure(String stage) {

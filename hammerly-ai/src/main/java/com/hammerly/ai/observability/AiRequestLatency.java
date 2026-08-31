@@ -20,10 +20,15 @@ public final class AiRequestLatency {
     private final AtomicInteger providerAttempts = new AtomicInteger();
     private final AtomicBoolean logged = new AtomicBoolean();
     private volatile long contextMs;
+    private volatile long redisSummaryMs;
     private volatile long ragMs;
+    private volatile long kbVersionMs;
+    private volatile long ragCacheMs;
     private volatile long embeddingMs;
-    private volatile long ragSearchMs;
+    private volatile long vectorSearchMs;
+    private volatile long faqCacheMs;
     private volatile boolean cacheHit;
+    private volatile boolean fastFaqCacheHit;
 
     private AiRequestLatency(Long coreAiStartedAtEpochMs) {
         this.coreToAiMs = boundedClockDelta(coreAiStartedAtEpochMs);
@@ -33,11 +38,21 @@ public final class AiRequestLatency {
         return new AiRequestLatency(coreAiStartedAtEpochMs);
     }
 
-    public void contextBuilt(long contextMs, long ragMs, long embeddingMs, long ragSearchMs) {
+    public void contextBuilt(long contextMs, long redisSummaryMs, long ragMs,
+                             long kbVersionMs, long ragCacheMs, long embeddingMs,
+                             long vectorSearchMs) {
         this.contextMs = Math.max(0, contextMs);
+        this.redisSummaryMs = Math.max(0, redisSummaryMs);
         this.ragMs = Math.max(0, ragMs);
+        this.kbVersionMs = Math.max(0, kbVersionMs);
+        this.ragCacheMs = Math.max(0, ragCacheMs);
         this.embeddingMs = Math.max(0, embeddingMs);
-        this.ragSearchMs = Math.max(0, ragSearchMs);
+        this.vectorSearchMs = Math.max(0, vectorSearchMs);
+    }
+
+    public void faqCacheLookup(long durationMs, boolean hit) {
+        this.faqCacheMs = Math.max(0, durationMs);
+        this.fastFaqCacheHit = hit;
     }
 
     public void cacheHit() {
@@ -62,10 +77,12 @@ public final class AiRequestLatency {
 
     public void completed(String outcome) {
         if (!logged.compareAndSet(false, true)) return;
-        log.info("ai_latency outcome={} cacheHit={} coreToAiMs={} contextMs={} ragMs={} "
-                + "embeddingMs={} ragSearchMs={} providerTtftMs={} firstSseMs={} totalMs={} "
-                + "providerAttempts={}",
-            outcome, cacheHit, coreToAiMs, contextMs, ragMs, embeddingMs, ragSearchMs,
+        log.info("ai_latency outcome={} cacheHit={} fastFaqCacheHit={} coreToAiMs={} "
+                + "contextMs={} redisSummaryMs={} ragMs={} kbVersionMs={} ragCacheMs={} "
+                + "embeddingMs={} vectorSearchMs={} faqCacheMs={} providerTtftMs={} "
+                + "firstSseMs={} totalMs={} providerAttempts={}",
+            outcome, cacheHit, fastFaqCacheHit, coreToAiMs, contextMs, redisSummaryMs,
+            ragMs, kbVersionMs, ragCacheMs, embeddingMs, vectorSearchMs, faqCacheMs,
             providerTtftMs.get(), firstSseMs.get(), elapsedMillis(requestStartedAt),
             providerAttempts.get());
     }

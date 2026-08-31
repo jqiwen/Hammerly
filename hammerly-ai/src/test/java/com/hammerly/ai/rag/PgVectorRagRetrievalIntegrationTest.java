@@ -77,7 +77,7 @@ class PgVectorRagRetrievalIntegrationTest {
             "This pending document must never be retrieved.", "[1,0,0]");
         QueryEmbeddingProvider embeddings = question -> new float[] {1f, 0f, 0f};
         RagProperties properties = new RagProperties(true, 4, 0.25, Duration.ofMinutes(5),
-            Duration.ofSeconds(2), "deterministic", "deterministic-v1", 3,
+            Duration.ofSeconds(45), Duration.ofSeconds(2), "deterministic", "deterministic-v1", 3,
             "https://api.openai.com", "", POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
             POSTGRES.getPassword(), "disable");
         PgVectorRagRetrievalService service = new PgVectorRagRetrievalService(

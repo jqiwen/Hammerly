@@ -90,6 +90,7 @@ jobs:
         --allow-unauthenticated
         --memory=1Gi
         --cpu=1
+        --cpu-boost
         --min-instances=${{ vars.CORE_CLOUD_RUN_MIN_INSTANCES || '0' }}
         --max-instances=5
         --network=${{ vars.AI_VPC_NETWORK }}

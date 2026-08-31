@@ -34,7 +34,7 @@ spring:
       chat:
         options:
           model: ${OPENAI_MODEL:gpt-4.1-mini}
-          max-completion-tokens: ${OPENAI_MAX_OUTPUT_TOKENS:350}
+          max-completion-tokens: ${OPENAI_MAX_OUTPUT_TOKENS:200}
           store: false
           internal-tool-execution-enabled: false
   kafka:
@@ -75,14 +75,15 @@ hammerly:
         requests: ${HAMMERLY_AI_RATE_LIMIT_REQUESTS:20}
         window: ${HAMMERLY_AI_RATE_LIMIT_WINDOW_SECONDS:60}s
     context:
-      recent-turns: ${HAMMERLY_AI_CONTEXT_RECENT_TURNS:6}
-      max-chars: ${HAMMERLY_AI_CONTEXT_MAX_CHARS:16000}
+      recent-turns: ${HAMMERLY_AI_CONTEXT_RECENT_TURNS:3}
+      max-chars: ${HAMMERLY_AI_CONTEXT_MAX_CHARS:8000}
     rag:
       enabled: ${HAMMERLY_RAG_ENABLED:false}
-      top-k: ${HAMMERLY_RAG_TOP_K:4}
+      top-k: ${HAMMERLY_RAG_TOP_K:3}
       similarity-threshold: ${HAMMERLY_RAG_SIMILARITY_THRESHOLD:0.25}
       cache-ttl: ${HAMMERLY_RAG_CACHE_TTL:5m}
-      timeout: ${HAMMERLY_RAG_TIMEOUT:2s}
+      knowledge-version-cache-ttl: ${HAMMERLY_RAG_KB_VERSION_CACHE_TTL:45s}
+      timeout: ${HAMMERLY_RAG_TIMEOUT:1200ms}
       embedding-provider: ${HAMMERLY_AI_EMBEDDING_PROVIDER:deterministic}
       embedding-model: ${HAMMERLY_AI_EMBEDDING_MODEL:text-embedding-3-small}
       embedding-dimension: ${HAMMERLY_RAG_EMBEDDING_DIMENSION:1536}

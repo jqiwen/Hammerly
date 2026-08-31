@@ -9,6 +9,7 @@ public record RagProperties(
     int topK,
     double similarityThreshold,
     Duration cacheTtl,
+    Duration knowledgeVersionCacheTtl,
     Duration timeout,
     String embeddingProvider,
     String embeddingModel,

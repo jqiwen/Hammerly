@@ -223,14 +223,17 @@ AI_VPC_SUBNET=default
 AI_CLOUD_RUN_MIN_INSTANCES=0
 
 OPENAI_MODEL=gpt-4.1-mini
-OPENAI_MAX_OUTPUT_TOKENS=350
+OPENAI_MAX_OUTPUT_TOKENS=200
 HAMMERLY_AI_LLM_MAX_ATTEMPTS=2
 HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT=8s
 HAMMERLY_AI_LLM_IDLE_TIMEOUT=10s
 HAMMERLY_RAG_ENABLED=true
-HAMMERLY_RAG_TOP_K=4
+HAMMERLY_RAG_TOP_K=3
 HAMMERLY_RAG_SIMILARITY_THRESHOLD=0.25
-HAMMERLY_RAG_TIMEOUT=2s
+HAMMERLY_RAG_TIMEOUT=1200ms
+HAMMERLY_RAG_KB_VERSION_CACHE_TTL=45s
+HAMMERLY_AI_CONTEXT_RECENT_TURNS=3
+HAMMERLY_AI_CONTEXT_MAX_CHARS=8000
 HAMMERLY_AI_EMBEDDING_PROVIDER=openai
 HAMMERLY_AI_EMBEDDING_MODEL=text-embedding-3-small
 
@@ -257,6 +260,11 @@ instance retains one ready database connection, and set
 `HAMMERLY_MARKETPLACE_CACHE_ENABLED=true` only after the configured Redis endpoint
 is reachable from Core. Keep the documented `0`/`false` values in cost-saving or
 Redis-free deployments.
+
+Cloud Run startup CPU boost is enabled explicitly by both request-driven deployment workflows.
+For a warm portfolio/demo profile, enable Memorystore and set `HAMMERLY_REDIS_ENABLED=true` in
+addition to both minimum-instance variables. This activates the cross-request conversation-summary,
+RAG-retrieval, and grounded-FAQ caches; every Redis operation still fails open to uncached work.
 
 Set the service-account variables to their full email addresses. No GitHub Action secret is required for GCP credentials or application runtime secrets.
 

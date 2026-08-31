@@ -234,14 +234,15 @@ when running Java processes directly. Important Phase 4/5 variables are:
 | `HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT` | `8s` | Maximum wait for the first streamed token per attempt |
 | `HAMMERLY_AI_LLM_IDLE_TIMEOUT` | `10s` | Maximum gap between streamed tokens |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | Low-latency non-reasoning support model |
-| `OPENAI_MAX_OUTPUT_TOKENS` | `350` | Bounded support-answer output budget |
+| `OPENAI_MAX_OUTPUT_TOKENS` | `200` | Bounded support-answer output budget |
 | `HAMMERLY_RAG_ENABLED` | `false` fail-safe service default, `true` in Compose/Kubernetes/Cloud Run deploy | Query embedding and pgvector retrieval switch |
-| `HAMMERLY_RAG_TOP_K` | `4` | Maximum retrieved chunks |
+| `HAMMERLY_RAG_TOP_K` | `3` | Maximum retrieved chunks; Recall@3 remains 1.0 in the repository evaluation |
 | `HAMMERLY_RAG_SIMILARITY_THRESHOLD` | `0.25` | Minimum cosine similarity |
-| `HAMMERLY_RAG_TIMEOUT` | `2s` | Whole retrieval deadline before graceful degradation |
+| `HAMMERLY_RAG_TIMEOUT` | `1200ms` | Whole retrieval deadline before graceful degradation |
 | `HAMMERLY_RAG_CACHE_TTL` | `5m` | Versioned Redis retrieval-cache TTL |
-| `HAMMERLY_AI_CONTEXT_RECENT_TURNS` | `6` | Recent user/assistant turns supplied to the model |
-| `HAMMERLY_AI_CONTEXT_MAX_CHARS` | `16000` | Combined model-context character bound |
+| `HAMMERLY_RAG_KB_VERSION_CACHE_TTL` | `45s` | Process-local knowledge-version TTL before PostgreSQL refresh |
+| `HAMMERLY_AI_CONTEXT_RECENT_TURNS` | `3` | Recent user/assistant turns supplied to the model |
+| `HAMMERLY_AI_CONTEXT_MAX_CHARS` | `8000` | Combined model-context character bound |
 | `HAMMERLY_AI_EMBEDDING_PROVIDER` | `deterministic` locally | Shared ingestion/query provider (`openai` in live environments) |
 | `HAMMERLY_RAG_CHUNK_TOKENS` | `650` | Deterministic whitespace-token approximation per chunk |
 | `HAMMERLY_RAG_CHUNK_OVERLAP_TOKENS` | `100` | Approximate chunk overlap |
@@ -375,17 +376,23 @@ chunk IDs, atomic replacement, retries, DLT publication, and sanitized `FAILED` 
 The former interactive worst case allowed three provider attempts with a 12-second first-token
 timeout plus backoff while Core waited roughly 45–50 seconds. Defaults are now two attempts, an
 8-second first-token deadline, 10-second idle deadline, capped two-second `Retry-After`, and concise
-350-token `gpt-4.1-mini` support answers without a reasoning-token budget. Provider retry remains impossible after any token has been
+200-token `gpt-4.1-mini` support answers without a reasoning-token budget. Provider retry remains impossible after any token has been
 emitted. Cloud Run cold-start cost/latency is selected independently with GitHub variables
 `CORE_CLOUD_RUN_MIN_INSTANCES` and `AI_CLOUD_RUN_MIN_INSTANCES`: keep both at `0` for cost
 saving, or set both to `1` for warm portfolio/demo instances.
 
 Every completed SSE request writes one identifier-free `ai_latency` summary with Core-to-AI
-network time, context, embedding, vector-search, total RAG duration, provider TTFT and attempts,
-first SSE-token time, and total duration. Provider completion logs include only finish reason and
+network time, Redis summary, knowledge-version, RAG-cache, embedding, vector-search, total RAG
+duration, grounded-FAQ-cache, provider TTFT and attempts, first SSE-token time, and total duration.
+Provider completion logs include only finish reason and
 token/character counts so token-limit truncation is diagnosable without recording prompts or
 retrieved text. Core writes a matching `core_ai_latency` summary with request-to-AI-start, first AI byte,
 and total browser-facing stream time. These fields are intended for cold-versus-warm comparisons.
+
+When Memorystore is running and reachable, set `HAMMERLY_REDIS_ENABLED=true` so conversation
+summaries, versioned RAG retrievals, and explicitly standalone grounded FAQ answers survive across
+Cloud Run requests and instances. Redis failures remain fail-open; keep the variable `false` for the
+cost-saving/demo-off profile.
 
 The GKE demo is intentionally separate from the Cloud Run production path. Prometheus and Grafana
 are private ClusterIP services reached through `kubectl port-forward`; in-cluster Redis and Kafka are

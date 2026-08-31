@@ -52,7 +52,7 @@ class OpenAiQueryEmbeddingProviderTest {
     @Test
     void missingApiKeyIsLazyAndFailsOnlyWhenAnEmbeddingIsRequested() {
         RagProperties properties = new RagProperties(true, 4, 0.25,
-            Duration.ofMinutes(5), Duration.ofSeconds(2), "openai",
+            Duration.ofMinutes(5), Duration.ofSeconds(45), Duration.ofSeconds(2), "openai",
             "text-embedding-3-small", 3, "https://api.openai.test", "",
             "jdbc:postgresql://localhost/test", "", "", "disable");
 
@@ -65,7 +65,8 @@ class OpenAiQueryEmbeddingProviderTest {
     }
 
     private RagProperties properties(int dimension) {
-        return new RagProperties(true, 4, 0.25, Duration.ofMinutes(5), Duration.ofSeconds(2),
+        return new RagProperties(true, 4, 0.25, Duration.ofMinutes(5),
+            Duration.ofSeconds(45), Duration.ofSeconds(2),
             "openai", "text-embedding-3-small", dimension, "https://api.openai.test", "key",
             "jdbc:postgresql://localhost/test", "", "", "disable");
     }

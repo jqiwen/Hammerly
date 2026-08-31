@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 
 class RagRetrievalEvaluationTest {
     @Test
-    void deterministicEmbeddingsRetrieveExpectedConceptAtTopFour() throws Exception {
+    void deterministicEmbeddingsReportRecallAtTwoThreeAndFour() throws Exception {
         Path repository = Path.of("..").toAbsolutePath().normalize();
         String document = Files.readString(repository.resolve(
             "docs/knowledge-base/hammerly-support.md"));
@@ -27,26 +27,34 @@ class RagRetrievalEvaluationTest {
                 "https://api.openai.com", "", Duration.ofSeconds(2)));
         List<String> chunks = chunker.chunk(document);
         List<float[]> vectors = chunks.stream().map(provider::embed).toList();
+        for (int topK : List.of(2, 3, 4)) {
+            EvaluationResult result = evaluate(cases, chunks, vectors, provider, topK);
+            System.out.printf("Deterministic retrieval Recall@%d: %.3f (%d/%d)%n",
+                topK, result.recall(), result.hits(), cases.size());
+            if (topK == 3) {
+                assertThat(result.misses()).as("Recall@3 queries missing every expected concept")
+                    .isEmpty();
+                assertThat(result.recall()).isEqualTo(1.0);
+            }
+        }
+    }
+
+    private EvaluationResult evaluate(List<EvaluationCase> cases, List<String> chunks,
+                                      List<float[]> vectors, EmbeddingProvider provider, int topK) {
         int hits = 0;
         List<String> misses = new ArrayList<>();
-
         for (EvaluationCase evaluation : cases) {
             float[] query = provider.embed(evaluation.question());
             List<String> top = java.util.stream.IntStream.range(0, chunks.size()).boxed()
                 .sorted(Comparator.comparingDouble((Integer index) -> cosine(query, vectors.get(index)))
                     .reversed())
-                .limit(4).map(chunks::get).toList();
+                .limit(topK).map(chunks::get).toList();
             String retrieved = String.join(" ", top).toLowerCase();
             boolean conceptHit = evaluation.expectedKeyConcepts().stream()
                 .map(String::toLowerCase).anyMatch(retrieved::contains);
             if (conceptHit) hits++; else misses.add(evaluation.question());
         }
-
-        double recallAtFour = (double) hits / cases.size();
-        System.out.printf("Deterministic retrieval Recall@4: %.3f (%d/%d)%n",
-            recallAtFour, hits, cases.size());
-        assertThat(misses).as("queries missing every expected concept").isEmpty();
-        assertThat(recallAtFour).isEqualTo(1.0);
+        return new EvaluationResult(hits, (double) hits / cases.size(), List.copyOf(misses));
     }
 
     private double cosine(float[] left, float[] right) {
@@ -57,4 +65,6 @@ class RagRetrievalEvaluationTest {
 
     private record EvaluationCase(String question, String expectedSource,
                                   List<String> expectedKeyConcepts) { }
+
+    private record EvaluationResult(int hits, double recall, List<String> misses) { }
 }

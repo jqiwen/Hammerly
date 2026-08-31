@@ -60,7 +60,7 @@ export function useAiSupportConversation(initialMessages: AiChatMessage[] = []) 
 
   const clearInputError = useCallback(() => setInputError(null), []);
 
-  const askQuestion = useCallback((question: string) => {
+  const askQuestion = useCallback((question: string, options: { standaloneFaq?: boolean } = {}) => {
     const trimmedQuestion = question.trim();
     if (!trimmedQuestion) {
       setInputError('Please enter a question.');
@@ -98,6 +98,7 @@ export function useAiSupportConversation(initialMessages: AiChatMessage[] = []) 
       question: trimmedQuestion,
       history,
       conversationId: conversationId.current,
+      standaloneFaq: Boolean(options.standaloneFaq && history.length === 0),
       signal: controller.signal,
       onChunk: (chunk) => {
         if (!mounted.current) return;

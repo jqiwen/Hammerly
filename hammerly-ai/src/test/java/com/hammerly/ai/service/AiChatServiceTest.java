@@ -15,7 +15,11 @@ import static org.mockito.Mockito.doThrow;
 
 import com.hammerly.ai.cache.AiCacheKeyFactory;
 import com.hammerly.ai.cache.AiResponseCache;
+import com.hammerly.ai.cache.GroundedFaqCache;
+import com.hammerly.ai.cache.GroundedFaqCacheEntry;
+import com.hammerly.ai.cache.GroundedFaqCacheProbe;
 import com.hammerly.ai.cache.RedisAiResponseCache;
+import com.hammerly.ai.cache.StandaloneFaqPolicy;
 import com.hammerly.ai.config.AiStateProperties;
 import com.hammerly.ai.config.HammerlySystemPrompt;
 import com.hammerly.ai.context.AiContextBuilder;
@@ -180,6 +184,50 @@ class AiChatServiceTest {
     }
 
     @Test
+    void explicitStandaloneFaqCacheHitSkipsConversationRagAndModel() {
+        GroundedFaqCache faqCache = mock(GroundedFaqCache.class);
+        AiContextBuilder contextBuilder = mock(AiContextBuilder.class);
+        List<RagSource> sources = List.of(new RagSource("Bidding", "Hammerly Guide"));
+        when(faqCache.lookup("How do I bid?")).thenReturn(new GroundedFaqCacheProbe(
+            Optional.of(new GroundedFaqCacheEntry("Cached grounded answer", sources, 7,
+                "gpt-4.1-mini", "config-v1")), 7, 1, true));
+        AiChatService fastService = new AiChatService(modelClient, conversationStore,
+            responseCache, cacheKeyFactory, permittedLimiter(), new AiMetrics(registry),
+            eventPublisher, fixedClock(), contextBuilder, faqCache, new StandaloneFaqPolicy());
+        ChatRequest request = new ChatRequest("How do I bid?", List.of(), CONVERSATION_ID, true);
+
+        AiStreamResult result = fastService.stream("42", request, false);
+
+        assertEquals(List.of("Cached grounded answer"), result.chunks().collectList().block());
+        assertEquals(sources, result.sources());
+        verify(conversationStore, never()).getRecent(anyString(), anyString());
+        verify(contextBuilder, never()).build(anyString(), anyString(), any(), anyString());
+        verify(modelClient, never()).stream(any(ModelRequest.class));
+    }
+
+    @Test
+    void firstStandaloneFaqMissStillBuildsRealGroundingThenPopulatesFastCache() {
+        GroundedFaqCache faqCache = mock(GroundedFaqCache.class);
+        when(faqCache.lookup("How do I bid?")).thenReturn(new GroundedFaqCacheProbe(
+            Optional.empty(), 7, 1, true));
+        List<RagSource> sources = List.of(new RagSource("Bidding", "Hammerly Guide"));
+        AiContextBuilder contextBuilder = (userId, conversationId, history, question) ->
+            new BuiltAiContext(history, question, "HAMMERLY RETRIEVED KNOWLEDGE", sources,
+                7, 2, 1, 2, 0, 0, 1, 1);
+        when(responseCache.get(anyString())).thenReturn(Optional.empty());
+        when(modelClient.stream(any(ModelRequest.class))).thenReturn(Flux.just("Grounded answer"));
+        AiChatService fastService = new AiChatService(modelClient, conversationStore,
+            responseCache, cacheKeyFactory, permittedLimiter(), new AiMetrics(registry),
+            eventPublisher, fixedClock(), contextBuilder, faqCache, new StandaloneFaqPolicy());
+        ChatRequest request = new ChatRequest("How do I bid?", List.of(), CONVERSATION_ID, true);
+
+        fastService.stream("42", request, false).chunks().collectList().block();
+
+        verify(modelClient).stream(any(ModelRequest.class));
+        verify(faqCache).put("How do I bid?", 7, "Grounded answer", sources);
+    }
+
+    @Test
     void failedPartialStreamIsNotCachedOrAppended() {
         when(responseCache.get(anyString())).thenReturn(Optional.empty());
         when(modelClient.stream(any(ModelRequest.class))).thenReturn(Flux.concat(
@@ -309,5 +357,15 @@ class AiChatServiceTest {
 
     private OpenAiProviderExecutor providerExecutor(SimpleMeterRegistry registry) {
         return ProviderExecutorTestFactory.create(registry);
+    }
+
+    private AiRateLimiter permittedLimiter() {
+        AiRateLimiter limiter = mock(AiRateLimiter.class);
+        when(limiter.acquire(anyString())).thenReturn(RateLimitDecision.prechecked());
+        return limiter;
+    }
+
+    private Clock fixedClock() {
+        return Clock.fixed(Instant.parse("2026-08-22T12:00:00Z"), ZoneOffset.UTC);
     }
 }

@@ -9,8 +9,12 @@ public record BuiltAiContext(
     String question,
     String systemContext,
     List<RagSource> sources,
+    long knowledgeBaseVersion,
     long contextDurationMs,
+    long summaryDurationMs,
     long ragDurationMs,
+    long knowledgeVersionDurationMs,
+    long ragCacheDurationMs,
     long embeddingDurationMs,
     long ragSearchDurationMs
 ) {
@@ -21,6 +25,6 @@ public record BuiltAiContext(
 
     public BuiltAiContext(List<ChatMessage> messages, String question, String systemContext,
                           List<RagSource> sources) {
-        this(messages, question, systemContext, sources, 0, 0, 0, 0);
+        this(messages, question, systemContext, sources, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 }
