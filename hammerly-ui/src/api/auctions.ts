@@ -1,7 +1,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const AUCTION_LIST_CACHE_TTL_MS = 60_000;
 const AUCTION_LIST_TIMEOUT_MS = 6_000;
-const TOP_AUCTIONS_CACHE_KEY = 'hammerly:auction-list:top:v2';
+export const TOP_AUCTIONS_CACHE_KEY = 'hammerly:auction-list:top:v2';
 
 type CachedAuctionResponse = {
   cachedAt: number;

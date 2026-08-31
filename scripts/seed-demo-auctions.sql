@@ -158,7 +158,14 @@ SELECT
     'Professionally presented ' || title || '. The item has been inspected, photographed, and described accurately for the Hammerly demo marketplace.',
     price,
     price,
-    image_url || '&sig=' || ordinal,
+    CASE title
+        WHEN 'Big Agnes Copper Spur Tent' THEN '/demo-auctions/big-agnes-copper-spur-tent.webp'
+        WHEN 'Apple MacBook Pro 14-inch M3' THEN '/demo-auctions/macbook-pro-m3.webp'
+        WHEN 'Osprey Atmos Hiking Backpack' THEN '/demo-auctions/osprey-atmos-backpack.webp'
+        WHEN 'Apple iPhone 15 Pro 256GB' THEN '/demo-auctions/iphone-15-pro.webp'
+        WHEN 'Custom RTX 4080 Gaming PC' THEN '/demo-auctions/rtx-4080-gaming-pc.webp'
+        ELSE image_url || '&sig=' || ordinal
+    END,
     item_condition,
     seller_email,
     CASE WHEN ordinal <= 85 THEN 'active' ELSE 'ended' END,

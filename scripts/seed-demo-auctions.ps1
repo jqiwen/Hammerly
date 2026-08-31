@@ -1,6 +1,7 @@
 param(
     [switch]$CheckOnly,
-    [switch]$ProfileListings
+    [switch]$ProfileListings,
+    [switch]$BootstrapCandidates
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,7 +46,28 @@ if (-not [string]::IsNullOrWhiteSpace($env:PGPASSWORD)) {
 }
 $dockerArguments += @('postgres:17-alpine', 'psql', '--no-psqlrc', '--set', 'ON_ERROR_STOP=1')
 
-if ($ProfileListings) {
+if ($BootstrapCandidates) {
+    $candidateSql = @'
+SET search_path TO hammerly, public;
+WITH homepage_candidates AS (
+    SELECT a.id, a.title, a.category, a.current_bid, a.image,
+           a.start_time, a.end_time, a.created_at
+    FROM auctions a
+    JOIN users u ON u.id = a.seller_id
+    WHERE u.email LIKE 'demo-seller-%@hammerly.example'
+      AND a.status = 'active'
+      AND a.start_time <= CURRENT_TIMESTAMP
+      AND a.end_time > CURRENT_TIMESTAMP
+    ORDER BY a.created_at DESC
+    LIMIT 12
+)
+SELECT id, title, category, current_bid, image, start_time, end_time
+FROM homepage_candidates
+ORDER BY end_time ASC
+LIMIT 5;
+'@
+    $candidateSql | & docker @dockerArguments
+} elseif ($ProfileListings) {
     $profileSql = @'
 SET search_path TO hammerly, public;
 EXPLAIN (ANALYZE, BUFFERS)
