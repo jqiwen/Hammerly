@@ -35,7 +35,9 @@ jobs:
           AI_OPENAI_SECRET: ${{ vars.AI_OPENAI_SECRET }}
           AI_REDIS_PASSWORD_SECRET: ${{ vars.AI_REDIS_PASSWORD_SECRET }}
           AI_INTERNAL_TOKEN_SECRET: ${{ vars.AI_INTERNAL_TOKEN_SECRET }}
-          AI_DB_SECRET: ${{ vars.AI_DB_SECRET }}
+          # AI and Core use the same Supabase database. Keep the AI-specific
+          # override, but remain compatible with the original Core variable.
+          AI_DB_SECRET: ${{ vars.AI_DB_SECRET || vars.CORE_DB_SECRET }}
           AI_REDIS_HOST: ${{ vars.AI_REDIS_HOST }}
           AI_REDIS_PORT: ${{ vars.AI_REDIS_PORT }}
           AI_REDIS_SSL: ${{ vars.AI_REDIS_SSL }}
@@ -108,6 +110,6 @@ jobs:
         HAMMERLY_COMMIT_SHA=${{ github.sha }}
       secret-bindings: |-
         OPENAI_API_KEY=${{ vars.AI_OPENAI_SECRET }}:latest
-        SUPABASE_DB_URL=${{ vars.AI_DB_SECRET }}:latest
+        SUPABASE_DB_URL=${{ vars.AI_DB_SECRET || vars.CORE_DB_SECRET }}:latest
         REDIS_PASSWORD=${{ vars.AI_REDIS_PASSWORD_SECRET }}:latest
         HAMMERLY_AI_INTERNAL_TOKEN=${{ vars.AI_INTERNAL_TOKEN_SECRET }}:latest

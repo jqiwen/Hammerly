@@ -227,6 +227,11 @@ HAMMERLY_KAFKA_ENABLED=false
 KAFKA_BOOTSTRAP_SERVERS
 ```
 
+`AI_DB_SECRET` may be omitted when `CORE_DB_SECRET` already names the shared
+Supabase JDBC secret. Likewise, `CORE_REDIS_PASSWORD_SECRET` may be omitted
+when `AI_REDIS_PASSWORD_SECRET` already names the shared Redis password
+secret. Service-specific variables take precedence when both are configured.
+
 Set the service-account variables to their full email addresses. No GitHub Action secret is required for GCP credentials or application runtime secrets.
 
 ## 8. First deployment order

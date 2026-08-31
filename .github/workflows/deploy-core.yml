@@ -34,7 +34,9 @@ jobs:
           CORE_RUNTIME_SERVICE_ACCOUNT: ${{ vars.CORE_RUNTIME_SERVICE_ACCOUNT }}
           CORE_DB_SECRET: ${{ vars.CORE_DB_SECRET }}
           CORE_JWT_SECRET: ${{ vars.CORE_JWT_SECRET }}
-          CORE_REDIS_PASSWORD_SECRET: ${{ vars.CORE_REDIS_PASSWORD_SECRET }}
+          # Core and AI use the same Redis deployment. Keep the Core-specific
+          # override, but remain compatible with the original AI variable.
+          CORE_REDIS_PASSWORD_SECRET: ${{ vars.CORE_REDIS_PASSWORD_SECRET || vars.AI_REDIS_PASSWORD_SECRET }}
           AI_INTERNAL_TOKEN_SECRET: ${{ vars.AI_INTERNAL_TOKEN_SECRET }}
           AI_VPC_NETWORK: ${{ vars.AI_VPC_NETWORK }}
           AI_VPC_SUBNET: ${{ vars.AI_VPC_SUBNET }}
@@ -110,5 +112,5 @@ jobs:
       secret-bindings: |-
         SUPABASE_DB_URL=${{ vars.CORE_DB_SECRET }}:latest
         JWT_SECRET=${{ vars.CORE_JWT_SECRET }}:latest
-        REDIS_PASSWORD=${{ vars.CORE_REDIS_PASSWORD_SECRET }}:latest
+        REDIS_PASSWORD=${{ vars.CORE_REDIS_PASSWORD_SECRET || vars.AI_REDIS_PASSWORD_SECRET }}:latest
         HAMMERLY_AI_INTERNAL_TOKEN=${{ vars.AI_INTERNAL_TOKEN_SECRET }}:latest
