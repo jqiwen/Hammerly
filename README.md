@@ -27,7 +27,7 @@ Hammerly Core (hammerly-backend, :5000)
        ├── bounded summary + recent turns + grounded chunks
        └── OpenAI through Spring AI (or deterministic local provider)
             ↓
-          metadata/chunk/done SSE events → React response + Sources
+          sources/chunk/done SSE events → React response + Sources
 ```
 
 The durable knowledge-ingestion path is:
@@ -233,9 +233,9 @@ when running Java processes directly. Important Phase 4/5 variables are:
 | `HAMMERLY_AI_LLM_MAX_ATTEMPTS` | `2` | Total attempts; retry is allowed only before the first token |
 | `HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT` | `8s` | Maximum wait for the first streamed token per attempt |
 | `HAMMERLY_AI_LLM_IDLE_TIMEOUT` | `10s` | Maximum gap between streamed tokens |
-| `OPENAI_MAX_OUTPUT_TOKENS` | `250` | Bounded support-answer output budget |
-| `OPENAI_REASONING_EFFORT` | `low` | Spring AI 1.1.7 OpenAI SDK reasoning effort |
-| `HAMMERLY_RAG_ENABLED` | `false` in service config, `true` in Compose | Query embedding and pgvector retrieval switch |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Low-latency non-reasoning support model |
+| `OPENAI_MAX_OUTPUT_TOKENS` | `350` | Bounded support-answer output budget |
+| `HAMMERLY_RAG_ENABLED` | `false` fail-safe service default, `true` in Compose/Kubernetes/Cloud Run deploy | Query embedding and pgvector retrieval switch |
 | `HAMMERLY_RAG_TOP_K` | `4` | Maximum retrieved chunks |
 | `HAMMERLY_RAG_SIMILARITY_THRESHOLD` | `0.25` | Minimum cosine similarity |
 | `HAMMERLY_RAG_TIMEOUT` | `2s` | Whole retrieval deadline before graceful degradation |
@@ -374,15 +374,17 @@ chunk IDs, atomic replacement, retries, DLT publication, and sanitized `FAILED` 
 
 The former interactive worst case allowed three provider attempts with a 12-second first-token
 timeout plus backoff while Core waited roughly 45–50 seconds. Defaults are now two attempts, an
-8-second first-token deadline, 10-second idle deadline, capped two-second `Retry-After`, and short
-250-token/low-reasoning support answers. Provider retry remains impossible after any token has been
+8-second first-token deadline, 10-second idle deadline, capped two-second `Retry-After`, and concise
+350-token `gpt-4.1-mini` support answers without a reasoning-token budget. Provider retry remains impossible after any token has been
 emitted. Cloud Run cold-start cost/latency is selected independently with GitHub variables
 `CORE_CLOUD_RUN_MIN_INSTANCES` and `AI_CLOUD_RUN_MIN_INSTANCES`: keep both at `0` for cost
 saving, or set both to `1` for warm portfolio/demo instances.
 
 Every completed SSE request writes one identifier-free `ai_latency` summary with Core-to-AI
-network time, context/RAG duration, provider TTFT and attempts, first SSE-token time, and total
-duration. Core writes a matching `core_ai_latency` summary with request-to-AI-start, first AI byte,
+network time, context, embedding, vector-search, total RAG duration, provider TTFT and attempts,
+first SSE-token time, and total duration. Provider completion logs include only finish reason and
+token/character counts so token-limit truncation is diagnosable without recording prompts or
+retrieved text. Core writes a matching `core_ai_latency` summary with request-to-AI-start, first AI byte,
 and total browser-facing stream time. These fields are intended for cold-versus-warm comparisons.
 
 The GKE demo is intentionally separate from the Cloud Run production path. Prometheus and Grafana

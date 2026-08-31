@@ -2,7 +2,6 @@ package com.hammerly.ai.service;
 
 import com.hammerly.ai.config.LoadTestProviderProperties;
 import com.hammerly.ai.diagnostic.AiProviderHttpException;
-import com.hammerly.ai.dto.ChatMessage;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -32,7 +31,7 @@ public class LoadTestAiModelClient implements AiModelClient {
     }
 
     @Override
-    public String chat(List<ChatMessage> history, String message) {
+    public String chat(ModelRequest request) {
         return providerExecutor.execute("chat", () -> {
             Fault fault = nextFault();
             throwIfImmediateFailure(fault);
@@ -49,7 +48,7 @@ public class LoadTestAiModelClient implements AiModelClient {
     }
 
     @Override
-    public Flux<String> stream(List<ChatMessage> history, String message) {
+    public Flux<String> stream(ModelRequest request) {
         return providerExecutor.stream("stream", () -> {
             Fault fault = nextFault();
             throwIfImmediateFailure(fault);

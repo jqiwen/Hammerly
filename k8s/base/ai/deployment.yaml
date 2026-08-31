@@ -41,6 +41,10 @@ spec:
                 secretKeyRef:
                   name: hammerly-app-secrets
                   key: OPENAI_API_KEY
+            - name: OPENAI_MODEL
+              value: gpt-4.1-mini
+            - name: OPENAI_MAX_OUTPUT_TOKENS
+              value: "350"
             - name: HAMMERLY_AI_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -72,6 +76,12 @@ spec:
                   key: SUPABASE_DB_URL
             - name: HAMMERLY_RAG_ENABLED
               value: "true"
+            - name: HAMMERLY_RAG_TOP_K
+              value: "4"
+            - name: HAMMERLY_RAG_SIMILARITY_THRESHOLD
+              value: "0.25"
+            - name: HAMMERLY_RAG_TIMEOUT
+              value: 2s
             - name: HAMMERLY_DB_SSL_MODE
               value: require
             - name: HAMMERLY_AI_EMBEDDING_PROVIDER

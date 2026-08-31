@@ -37,4 +37,27 @@ class DocumentChunkerTest {
         assertThat(chunks.get(1).split(" ")).startsWith("w7", "w8", "w9");
         assertThat(chunks).noneMatch(String::isBlank);
     }
+
+    @Test
+    void markdownSectionsProduceIndependentCitableChunks() {
+        String document = """
+            # Hammerly Support Guide
+            Introductory support reference.
+
+            ## Bidding
+            Sign in and bid above the current amount.
+
+            ## Watchlists
+            Watchlists are personal bookmarks.
+            """;
+        DocumentChunker sectionChunker = new DocumentChunker(40, 5);
+
+        List<String> chunks = sectionChunker.chunk(document);
+
+        assertThat(chunks).hasSize(3);
+        assertThat(chunks).anySatisfy(chunk ->
+            assertThat(chunk).startsWith("## Bidding\n").contains("bid above"));
+        assertThat(chunks).anySatisfy(chunk ->
+            assertThat(chunk).startsWith("## Watchlists\n").contains("bookmarks"));
+    }
 }

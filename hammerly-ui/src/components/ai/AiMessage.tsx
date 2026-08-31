@@ -55,7 +55,7 @@ export function AiMessage({ message, isStreaming = false }: AiMessageProps) {
             <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
               {sources.map((source) => (
                 <li key={`${source.title}-${source.source}`}>
-                  • {source.title}{source.source ? ` — ${source.source}` : ''}
+                  • {source.source}{source.title ? ` · ${source.title}` : ''}
                 </li>
               ))}
             </ul>

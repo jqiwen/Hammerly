@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.hammerly.ai.redis.InMemoryRedisStateClient;
 import com.hammerly.ai.redis.RedisStateClient;
+import com.hammerly.ai.rag.NoOpRagRetrievalService;
+import com.hammerly.ai.rag.RagRetrievalService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
@@ -30,10 +32,21 @@ class HammerlyAiApplicationTest {
     @Autowired
     RedisStateClient redisStateClient;
 
+    @Autowired
+    RagRetrievalService ragRetrievalService;
+
     @Test
     void contextLoads() {
         org.junit.jupiter.api.Assertions.assertInstanceOf(
             InMemoryRedisStateClient.class, redisStateClient);
+    }
+
+    @Test
+    void repositoryDefaultKeepsRagDisabledAndNonBlocking() {
+        org.junit.jupiter.api.Assertions.assertInstanceOf(
+            NoOpRagRetrievalService.class, ragRetrievalService);
+        org.junit.jupiter.api.Assertions.assertTrue(
+            ragRetrievalService.retrieve("How do I bid?").chunks().isEmpty());
     }
 
     @Test

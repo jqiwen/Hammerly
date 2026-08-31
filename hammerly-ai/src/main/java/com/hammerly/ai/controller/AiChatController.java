@@ -70,12 +70,12 @@ public class AiChatController {
             return ResponseEntity.ok(Flux.just(unavailableEvent(exception)));
         }
 
-        Flux<ServerSentEvent<ChatStreamEvent>> metadata = result.sources().isEmpty()
+        Flux<ServerSentEvent<ChatStreamEvent>> sourceEvents = result.sources().isEmpty()
             ? Flux.empty()
             : Flux.just(ServerSentEvent.builder(ChatStreamEvent.metadata(result.sources()))
-                .event("metadata").build());
+                .event("sources").build());
         AtomicReference<String> latencyOutcome = new AtomicReference<>("success");
-        Flux<ServerSentEvent<ChatStreamEvent>> events = metadata.concatWith(result.chunks()
+        Flux<ServerSentEvent<ChatStreamEvent>> events = sourceEvents.concatWith(result.chunks()
             .map(chunk -> {
                 result.firstSseToken();
                 return ServerSentEvent.builder(new ChatStreamEvent(chunk))

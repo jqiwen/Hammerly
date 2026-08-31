@@ -70,16 +70,19 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
             long version = versionValue == null ? 0 : versionValue;
             String cacheKey = cacheKey(query, version);
             Optional<RagResult> cached = readCache(cacheKey);
-            if (cached.isPresent()) return cached.orElseThrow();
+            if (cached.isPresent()) return cached.orElseThrow().asCacheHit();
 
             long embeddingStarted = System.nanoTime();
             float[] vector = embeddings.embed(query);
+            long embeddingDurationMs = elapsedMillis(embeddingStarted);
             metrics.ragEmbeddingCompleted(embeddingStarted);
 
             long searchStarted = System.nanoTime();
             String literal = vectorLiteral(vector);
             List<RagChunk> chunks = jdbc.query("""
-                SELECT c.id::text AS chunk_id, d.title, d.source, c.content,
+                SELECT c.id::text AS chunk_id, c.document_id::text AS document_id,
+                       COALESCE(NULLIF(c.metadata->>'sectionTitle', ''), d.title) AS title,
+                       d.title AS source, c.content,
                        1 - (c.embedding <=> CAST(? AS vector)) AS similarity
                 FROM knowledge_chunks c
                 JOIN knowledge_documents d ON d.id = c.document_id
@@ -87,11 +90,14 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
                   AND 1 - (c.embedding <=> CAST(? AS vector)) >= ?
                 ORDER BY c.embedding <=> CAST(? AS vector)
                 LIMIT ?
-                """, (rs, row) -> new RagChunk(rs.getString("chunk_id"), rs.getString("title"),
-                    rs.getString("source"), rs.getString("content"), rs.getDouble("similarity")),
+                """, (rs, row) -> new RagChunk(rs.getString("chunk_id"),
+                    rs.getString("document_id"), rs.getString("title"), rs.getString("source"),
+                    rs.getString("content"), rs.getDouble("similarity")),
                 literal, literal, properties.similarityThreshold(), literal, properties.topK());
+            long searchDurationMs = elapsedMillis(searchStarted);
             metrics.ragSearchCompleted(searchStarted, chunks.size());
-            RagResult result = new RagResult(chunks, version);
+            RagResult result = new RagResult(chunks, version, embeddingDurationMs,
+                searchDurationMs, false);
             writeCache(cacheKey, result);
             return result;
         } catch (RuntimeException exception) {
@@ -169,5 +175,9 @@ public class PgVectorRagRetrievalService implements RagRetrievalService {
         Throwable current = throwable;
         while (current.getCause() != null) current = current.getCause();
         return current;
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
     }
 }

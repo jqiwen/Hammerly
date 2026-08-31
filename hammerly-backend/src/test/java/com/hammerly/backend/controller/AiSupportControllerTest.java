@@ -113,7 +113,9 @@ class AiSupportControllerTest {
     void streamingEndpointUsesSseAndForwardsBytes() throws Exception {
         doAnswer(invocation -> {
             java.io.OutputStream output = invocation.getArgument(2);
-            output.write("event:chunk\ndata:Bid now\n\nevent:done\ndata:\n\n"
+            output.write(("event:sources\ndata:{\"sources\":[{\"title\":\"Bidding\","
+                + "\"source\":\"Hammerly Support Guide\"}]}\n\n"
+                + "event:chunk\ndata:Bid now\n\nevent:done\ndata:\n\n")
                 .getBytes(StandardCharsets.UTF_8));
             output.flush();
             return null;
@@ -130,6 +132,9 @@ class AiSupportControllerTest {
         mvc.perform(asyncDispatch(started))
             .andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("event:sources")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString(
+                "Hammerly Support Guide")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:chunk")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:done")));
     }

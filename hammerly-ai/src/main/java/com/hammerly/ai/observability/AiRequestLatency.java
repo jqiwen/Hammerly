@@ -21,6 +21,8 @@ public final class AiRequestLatency {
     private final AtomicBoolean logged = new AtomicBoolean();
     private volatile long contextMs;
     private volatile long ragMs;
+    private volatile long embeddingMs;
+    private volatile long ragSearchMs;
     private volatile boolean cacheHit;
 
     private AiRequestLatency(Long coreAiStartedAtEpochMs) {
@@ -31,9 +33,11 @@ public final class AiRequestLatency {
         return new AiRequestLatency(coreAiStartedAtEpochMs);
     }
 
-    public void contextBuilt(long contextMs, long ragMs) {
+    public void contextBuilt(long contextMs, long ragMs, long embeddingMs, long ragSearchMs) {
         this.contextMs = Math.max(0, contextMs);
         this.ragMs = Math.max(0, ragMs);
+        this.embeddingMs = Math.max(0, embeddingMs);
+        this.ragSearchMs = Math.max(0, ragSearchMs);
     }
 
     public void cacheHit() {
@@ -59,9 +63,11 @@ public final class AiRequestLatency {
     public void completed(String outcome) {
         if (!logged.compareAndSet(false, true)) return;
         log.info("ai_latency outcome={} cacheHit={} coreToAiMs={} contextMs={} ragMs={} "
-                + "providerTtftMs={} firstSseMs={} totalMs={} providerAttempts={}",
-            outcome, cacheHit, coreToAiMs, contextMs, ragMs, providerTtftMs.get(),
-            firstSseMs.get(), elapsedMillis(requestStartedAt), providerAttempts.get());
+                + "embeddingMs={} ragSearchMs={} providerTtftMs={} firstSseMs={} totalMs={} "
+                + "providerAttempts={}",
+            outcome, cacheHit, coreToAiMs, contextMs, ragMs, embeddingMs, ragSearchMs,
+            providerTtftMs.get(), firstSseMs.get(), elapsedMillis(requestStartedAt),
+            providerAttempts.get());
     }
 
     public int providerAttempts() {

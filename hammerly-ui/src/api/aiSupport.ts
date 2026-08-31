@@ -15,7 +15,6 @@ export type AiSupportHistoryMessage = {
 export type AiSupportSource = {
   title: string;
   source: string;
-  chunkId?: string;
 };
 
 export class AiSupportUnavailableError extends Error {
@@ -86,7 +85,6 @@ const readEventSources = (data: string): AiSupportSource[] => {
       return [{
         title: value.title,
         source: value.source,
-        ...(typeof value.chunkId === 'string' ? { chunkId: value.chunkId } : {}),
       }];
     });
   } catch {
@@ -154,7 +152,7 @@ export const streamAiSupport = async ({
         if (parsed.event === 'chunk') {
           const content = readEventContent(parsed.data);
           if (content) onChunk(content);
-        } else if (parsed.event === 'metadata') {
+        } else if (parsed.event === 'sources' || parsed.event === 'metadata') {
           const sources = readEventSources(parsed.data);
           if (sources.length) onSources?.(sources);
         } else if (parsed.event === 'done') {

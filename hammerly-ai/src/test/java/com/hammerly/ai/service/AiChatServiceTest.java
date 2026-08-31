@@ -18,6 +18,8 @@ import com.hammerly.ai.cache.AiResponseCache;
 import com.hammerly.ai.cache.RedisAiResponseCache;
 import com.hammerly.ai.config.AiStateProperties;
 import com.hammerly.ai.config.HammerlySystemPrompt;
+import com.hammerly.ai.context.AiContextBuilder;
+import com.hammerly.ai.context.BuiltAiContext;
 import com.hammerly.ai.conversation.ConversationHistory;
 import com.hammerly.ai.conversation.ConversationAppendResult;
 import com.hammerly.ai.conversation.ConversationMessage;
@@ -31,6 +33,7 @@ import com.hammerly.ai.observability.AiMetrics;
 import com.hammerly.ai.ratelimit.AiRateLimiter;
 import com.hammerly.ai.ratelimit.RateLimitDecision;
 import com.hammerly.ai.ratelimit.RedisAiRateLimiter;
+import com.hammerly.ai.rag.RagSource;
 import com.hammerly.ai.support.AiTestFixtures;
 import com.hammerly.ai.support.FakeRedisStateClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -85,12 +88,15 @@ class AiChatServiceTest {
     @Test
     void cacheMissCallsModelCachesAnswerAndAppendsConversation() {
         when(responseCache.get(anyString())).thenReturn(Optional.empty());
-        when(modelClient.chat(any(), anyString())).thenReturn("Use the bid form.");
+        when(modelClient.chat(any(ModelRequest.class))).thenReturn("Use the bid form.");
 
         AiChatResult result = service.chat("42", request());
 
         assertEquals("Use the bid form.", result.answer());
-        verify(modelClient).chat(List.of(), "How do I bid?");
+        ArgumentCaptor<ModelRequest> modelRequest = ArgumentCaptor.forClass(ModelRequest.class);
+        verify(modelClient).chat(modelRequest.capture());
+        assertEquals(List.of(), modelRequest.getValue().history());
+        assertEquals("How do I bid?", modelRequest.getValue().question());
         verify(responseCache).put(anyString(), org.mockito.ArgumentMatchers.eq("Use the bid form."));
         verify(conversationStore).append(anyString(), anyString(), any());
         verify(eventPublisher).publishSuccessfulTurn(any());
@@ -100,14 +106,37 @@ class AiChatServiceTest {
     }
 
     @Test
+    void passesRetrievedHammerlyContextToTheModelAsSystemContext() {
+        when(responseCache.get(anyString())).thenReturn(Optional.empty());
+        when(modelClient.chat(any(ModelRequest.class))).thenReturn("Submit a higher bid.");
+        AiRateLimiter limiter = mock(AiRateLimiter.class);
+        when(limiter.acquire(anyString())).thenReturn(RateLimitDecision.prechecked());
+        AiContextBuilder contextBuilder = (userId, conversationId, history, question) ->
+            new BuiltAiContext(history, question,
+                "HAMMERLY RETRIEVED KNOWLEDGE\n[Source 1: Bidding | Hammerly Support Guide]",
+                List.of(new RagSource("Bidding", "Hammerly Support Guide")));
+        AiChatService groundedService = new AiChatService(modelClient, conversationStore,
+            responseCache, cacheKeyFactory, limiter, new AiMetrics(registry), eventPublisher,
+            Clock.fixed(Instant.parse("2026-08-22T12:00:00Z"), ZoneOffset.UTC), contextBuilder);
+
+        AiChatResult result = groundedService.chat("42", request());
+
+        ArgumentCaptor<ModelRequest> modelRequest = ArgumentCaptor.forClass(ModelRequest.class);
+        verify(modelClient).chat(modelRequest.capture());
+        assertTrue(modelRequest.getValue().systemContext().contains("Bidding"));
+        assertEquals("How do I bid?", modelRequest.getValue().question());
+        assertEquals(List.of(new RagSource("Bidding", "Hammerly Support Guide")), result.sources());
+    }
+
+    @Test
     void cacheHitAvoidsModelCall() {
         when(responseCache.get(anyString())).thenReturn(Optional.of("Cached answer"));
 
         AiChatResult result = service.chat("42", request());
 
         assertEquals("Cached answer", result.answer());
-        verify(modelClient, never()).chat(any(), anyString());
-        verify(modelClient, never()).stream(any(), anyString());
+        verify(modelClient, never()).chat(any(ModelRequest.class));
+        verify(modelClient, never()).stream(any(ModelRequest.class));
     }
 
     @Test
@@ -119,19 +148,19 @@ class AiChatServiceTest {
                 new ConversationMessage(ChatRole.ASSISTANT, "Cached answer", timestamp)
             )));
         String priorContextKey = cacheKeyFactory.create("42", CONVERSATION_ID,
-            "How do I bid?", List.of());
+            "How do I bid?\n", List.of());
         when(responseCache.get(priorContextKey)).thenReturn(Optional.of("Cached answer"));
 
         AiChatResult result = service.chat("42", request());
 
         assertEquals("Cached answer", result.answer());
-        verify(modelClient, never()).chat(any(), anyString());
+        verify(modelClient, never()).chat(any(ModelRequest.class));
     }
 
     @Test
     void completedStreamingResponseIsCachedAndConversationIsAppended() {
         when(responseCache.get(anyString())).thenReturn(Optional.empty());
-        when(modelClient.stream(any(), anyString())).thenReturn(Flux.just("Bid ", "now."));
+        when(modelClient.stream(any(ModelRequest.class))).thenReturn(Flux.just("Bid ", "now."));
 
         List<String> chunks = service.stream("42", request(), false).chunks().collectList().block();
 
@@ -147,13 +176,13 @@ class AiChatServiceTest {
         List<String> chunks = service.stream("42", request(), false).chunks().collectList().block();
 
         assertEquals(List.of("Cached stream"), chunks);
-        verify(modelClient, never()).stream(any(), anyString());
+        verify(modelClient, never()).stream(any(ModelRequest.class));
     }
 
     @Test
     void failedPartialStreamIsNotCachedOrAppended() {
         when(responseCache.get(anyString())).thenReturn(Optional.empty());
-        when(modelClient.stream(any(), anyString())).thenReturn(Flux.concat(
+        when(modelClient.stream(any(ModelRequest.class))).thenReturn(Flux.concat(
             Flux.just("partial"),
             Flux.error(new SocketTimeoutException("timed out"))
         ));
@@ -172,7 +201,7 @@ class AiChatServiceTest {
     @Test
     void cancellingStreamRecordsDurationAndReleasesActiveConversation() {
         when(responseCache.get(anyString())).thenReturn(Optional.empty());
-        when(modelClient.stream(any(), anyString())).thenReturn(Flux.never());
+        when(modelClient.stream(any(ModelRequest.class))).thenReturn(Flux.never());
 
         Disposable subscription = service.stream("42", request(), false).chunks().subscribe();
         assertEquals(1.0, registry.get("active.conversations").gauge().value());
@@ -200,7 +229,7 @@ class AiChatServiceTest {
     @Test
     void failedProviderResponseDoesNotPublishEvent() {
         when(responseCache.get(anyString())).thenReturn(Optional.empty());
-        when(modelClient.chat(any(), anyString()))
+        when(modelClient.chat(any(ModelRequest.class)))
             .thenThrow(new AiProviderUnavailableException("provider failed"));
 
         assertThrows(AiProviderUnavailableException.class,
@@ -212,7 +241,7 @@ class AiChatServiceTest {
     @Test
     void eventDispatchFailureDoesNotFailSuccessfulChat() {
         when(responseCache.get(anyString())).thenReturn(Optional.empty());
-        when(modelClient.chat(any(), anyString())).thenReturn("Answer survives Kafka outage");
+        when(modelClient.chat(any(ModelRequest.class))).thenReturn("Answer survives Kafka outage");
         doThrow(new IllegalStateException("Kafka unavailable"))
             .when(eventPublisher).publishSuccessfulTurn(any());
 
@@ -227,7 +256,7 @@ class AiChatServiceTest {
         when(responseCache.get(anyString())).thenReturn(Optional.empty());
         AtomicInteger attempts = new AtomicInteger();
         OpenAiProviderExecutor executor = providerExecutor(new SimpleMeterRegistry());
-        when(modelClient.stream(any(), anyString())).thenReturn(
+        when(modelClient.stream(any(ModelRequest.class))).thenReturn(
             executor.stream("stream", () -> attempts.incrementAndGet() == 1
                 ? Flux.error(new SocketTimeoutException("timed out"))
                 : Flux.just("Final ", "answer"))
@@ -265,13 +294,13 @@ class AiChatServiceTest {
             new AiCacheKeyFactory(new HammerlySystemPrompt("system prompt")),
             new RedisAiRateLimiter(failedRedis, properties, outageMetrics, fixedClock),
             outageMetrics, eventPublisher, fixedClock);
-        when(modelClient.chat(any(), anyString())).thenReturn("Answer despite Redis outage");
+        when(modelClient.chat(any(ModelRequest.class))).thenReturn("Answer despite Redis outage");
 
         AiChatResult result = outageService.chat("42", request());
 
         assertEquals("Answer despite Redis outage", result.answer());
         assertEquals(1.0, registry.get("hammerly.ai.rate_limit.redis_failure").counter().count());
-        verify(modelClient).chat(List.of(), "How do I bid?");
+        verify(modelClient).chat(any(ModelRequest.class));
     }
 
     private ChatRequest request() {

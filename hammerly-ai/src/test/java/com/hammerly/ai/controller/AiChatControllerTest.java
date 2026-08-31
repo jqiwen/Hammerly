@@ -174,7 +174,7 @@ class AiChatControllerTest {
     void streamingEndpointEmitsRealSourceMetadataBeforeChunks() throws Exception {
         when(aiChatService.stream(anyString(), any(), anyBoolean(), any()))
             .thenReturn(new AiStreamResult(Flux.just("Bid now."), ALLOWED,
-                List.of(new RagSource("Hammerly Support Guide", "Bidding", "chunk-1"))));
+                List.of(new RagSource("Bidding", "Hammerly Support Guide"))));
 
         MvcResult started = mvc.perform(post("/internal/ai/chat/stream")
                 .header(InternalAiHeaders.USER_ID, "42")
@@ -186,7 +186,7 @@ class AiChatControllerTest {
 
         mvc.perform(asyncDispatch(started))
             .andExpect(status().isOk())
-            .andExpect(content().string(org.hamcrest.Matchers.containsString("event:metadata")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("event:sources")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("Hammerly Support Guide")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:chunk")));
     }

@@ -33,9 +33,8 @@ spring:
       max-retries: 0
       chat:
         options:
-          model: ${OPENAI_MODEL:gpt-5-mini}
-          max-completion-tokens: ${OPENAI_MAX_OUTPUT_TOKENS:250}
-          reasoning-effort: ${OPENAI_REASONING_EFFORT:low}
+          model: ${OPENAI_MODEL:gpt-4.1-mini}
+          max-completion-tokens: ${OPENAI_MAX_OUTPUT_TOKENS:350}
           store: false
           internal-tool-execution-enabled: false
   kafka:

@@ -18,7 +18,7 @@ React → Core/JWT → AI → query embedding → PostgreSQL/pgvector → LLM �
           └── Redis marketplace cache       AI └── Redis state/RAG cache
 ```
 
-SSE preserves existing `chunk`, `done`, and safe `error` events and adds an optional `metadata`
+SSE preserves existing `chunk`, `done`, and safe `error` events and adds an optional `sources`
 event containing only sources actually included in the prompt. Kafka is not part of this path.
 
 ## Durable knowledge ingestion
@@ -39,7 +39,9 @@ Kafka → existing Redis event claim → PROCESSING → deterministic chunks →
       → transaction(delete old chunks, insert vectors, READY, increment knowledge version) → ack
 ```
 
-The default chunker uses a deterministic whitespace-token approximation (650 units, 100 overlap).
+The default chunker first separates Markdown H2 sections, then uses a deterministic whitespace-token
+approximation (650 units, 100 overlap) within each section. This keeps topics such as `Bidding` and
+`Watchlists` independently retrievable and citable.
 OpenAI `text-embedding-3-small` at 1,536 dimensions is the live provider; a normalized hashed
 bag-of-words vector is used for tests and local no-cost runs. Stable chunk indexes and UUIDs plus
 atomic replacement make repeated delivery safe. Exhausted records go to the existing `.DLT`; an

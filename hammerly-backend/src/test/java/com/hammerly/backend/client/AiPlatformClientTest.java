@@ -88,7 +88,10 @@ class AiPlatformClientTest {
             .andRespond(withStatus(HttpStatus.NO_CONTENT)
                 .header("X-RateLimit-Limit", "20")
                 .header("X-RateLimit-Remaining", "19"));
-        String sse = "event:chunk\ndata:{\"content\":\"Bid now\"}\n\nevent:done\ndata:{\"content\":\"\"}\n\n";
+        String sse = "event:sources\ndata:{\"sources\":[{\"title\":\"Bidding\","
+            + "\"source\":\"Hammerly Support Guide\"}]}\n\n"
+            + "event:chunk\ndata:{\"content\":\"Bid now\"}\n\n"
+            + "event:done\ndata:{\"content\":\"\"}\n\n";
         test.server().expect(once(), requestTo("http://hammerly-ai/internal/ai/chat/stream"))
             .andExpect(header(InternalAiHeaders.USER_ID, "42"))
             .andExpect(header(InternalAiHeaders.RATE_LIMIT_PRECHECKED, "true"))

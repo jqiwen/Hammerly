@@ -222,11 +222,17 @@ AI_VPC_NETWORK=default
 AI_VPC_SUBNET=default
 AI_CLOUD_RUN_MIN_INSTANCES=0
 
-OPENAI_MODEL=gpt-5-mini
-OPENAI_MAX_OUTPUT_TOKENS=250
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MAX_OUTPUT_TOKENS=350
 HAMMERLY_AI_LLM_MAX_ATTEMPTS=2
 HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT=8s
 HAMMERLY_AI_LLM_IDLE_TIMEOUT=10s
+HAMMERLY_RAG_ENABLED=true
+HAMMERLY_RAG_TOP_K=4
+HAMMERLY_RAG_SIMILARITY_THRESHOLD=0.25
+HAMMERLY_RAG_TIMEOUT=2s
+HAMMERLY_AI_EMBEDDING_PROVIDER=openai
+HAMMERLY_AI_EMBEDDING_MODEL=text-embedding-3-small
 
 HAMMERLY_FRONTEND_URL=https://hammerly.jqiwen.com
 HAMMERLY_AI_URL
@@ -256,7 +262,7 @@ Set the service-account variables to their full email addresses. No GitHub Actio
 
 ## 8. First deployment order
 
-1. Leave `HAMMERLY_REDIS_ENABLED=false` and `HAMMERLY_KAFKA_ENABLED=false` for the initial cost-saving deployment.
+1. Leave `HAMMERLY_REDIS_ENABLED=false` and `HAMMERLY_KAFKA_ENABLED=false` for the initial cost-saving deployment. RAG reads can still remain enabled because they query READY pgvector chunks synchronously; Kafka is required only to ingest or refresh documents.
 2. Set `GCP_DEPLOYMENTS_ENABLED=true`.
 3. Manually run **Deploy AI** from GitHub Actions.
 4. Read the resulting AI Cloud Run URL and set `HAMMERLY_AI_URL` to it.
@@ -267,7 +273,32 @@ Set the service-account variables to their full email addresses. No GitHub Actio
 
 Subsequent relevant pushes to `main` deploy each service independently. Core and AI use stable configured URLs; no generated URL is written into Java or workflow source.
 
-## 9. Demo infrastructure ON/OFF
+## 9. Seed and verify the RAG knowledge document
+
+The canonical portfolio document is `docs/knowledge-base/hammerly-support.md`. Ingestion sends this
+document to the configured embedding provider. Start Kafka and a current Worker runtime before
+submitting it; otherwise the durable outbox row correctly remains pending and the document cannot
+become `READY`.
+
+With the demo infrastructure enabled and the Worker image deployed, run:
+
+```powershell
+.\scripts\knowledge\ingest-support.ps1 `
+  -BaseUrl 'https://YOUR-CORE-SERVICE' `
+  -InternalToken $env:HAMMERLY_AI_INTERNAL_TOKEN
+```
+
+The script waits until the document is `READY`. For a direct read-only production verification,
+set `SUPABASE_DB_URL` in the current shell and run:
+
+```powershell
+.\scripts\knowledge\verify-rag-status.ps1
+```
+
+The status check prints document state, chunk count, citable section labels, knowledge-base version,
+and aggregate unpublished outbox status. It never prints document content or database credentials.
+
+## 10. Demo infrastructure ON/OFF
 
 The scripts are idempotent and pass `--project=hammerly-506214` and `--region=us-west1` by default. They never run as part of tests or CI. Preview either workflow with `-WhatIf`.
 
@@ -312,7 +343,7 @@ The Kafka VM must already exist and its broker must listen on and advertise its 
 
 Cloud Run deployments use the GitHub variables on every new AI revision. Keep `HAMMERLY_REDIS_ENABLED` and `HAMMERLY_KAFKA_ENABLED` aligned with the intended persistent mode, or rerun the ON/OFF script after a deployment. The repository defaults both production variables to `false` when they are absent.
 
-## 10. Worker runtime
+## 11. Worker runtime
 
 `deploy-worker.yml` tests the worker and publishes `hammerly-worker:<git-sha>` and `latest` to Artifact Registry. It intentionally does not start a runtime. `enable-demo-infra.ps1` creates or updates the continuous Cloud Run worker pool only when demo infrastructure is explicitly enabled; `disable-demo-infra.ps1` returns it to zero instances.
 
@@ -326,7 +357,7 @@ Before enabling the demo worker runtime, provision:
 
 An ordinary request-driven Cloud Run service is not used for the Kafka consumer. Cloud Run worker pools support continuous pull-based processing and can be explicitly set to zero instances in demo-off mode. Do not enable `HAMMERLY_KAFKA_ENABLED` in AI until the broker and worker pool are ready.
 
-## 11. Branch protection
+## 12. Branch protection
 
 After the `CI` workflow has run once, open **GitHub → Settings → Branches → Add branch protection rule**:
 

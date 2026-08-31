@@ -93,7 +93,7 @@ public class AiChatService {
 
             log.info("AI chat cache miss contextMessages={}", prepared.context().size());
             try {
-                String answer = modelClient.chat(prepared.context(), prepared.modelQuestion());
+                String answer = modelClient.chat(prepared.modelRequest());
                 if (!StringUtils.hasText(answer)) {
                     throw new AiProviderUnavailableException("AI provider returned an empty response.");
                 }
@@ -132,7 +132,8 @@ public class AiChatService {
         metrics.aiRequestStarted();
         try {
             PreparedRequest prepared = prepare(userId, request);
-            latency.contextBuilt(prepared.contextDurationMs(), prepared.ragDurationMs());
+            latency.contextBuilt(prepared.contextDurationMs(), prepared.ragDurationMs(),
+                prepared.embeddingDurationMs(), prepared.ragSearchDurationMs());
             Optional<String> cached = findCached(prepared);
             if (cached.isPresent()) {
                 latency.cacheHit();
@@ -158,7 +159,7 @@ public class AiChatService {
             AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
             final Flux<String> chunks;
             try {
-                chunks = modelClient.stream(prepared.context(), prepared.modelQuestion());
+                chunks = modelClient.stream(prepared.modelRequest());
             } catch (RuntimeException exception) {
                 throw exception instanceof AiProviderUnavailableException
                     ? exception
@@ -233,10 +234,17 @@ public class AiChatService {
         BuiltAiContext built = contextBuilder.build(userId, request.conversationId(),
             context, request.message());
         String cacheKey = cacheKeyFactory.create(userId, request.conversationId(),
-            built.modelQuestion(), built.messages());
-        Optional<String> retryCacheKey = retryCacheKey(userId, request, built.messages());
-        return new PreparedRequest(built.messages(), snapshot, cacheKey, retryCacheKey,
-            built.modelQuestion(), built.sources(), built.contextDurationMs(), built.ragDurationMs());
+            cacheMaterial(built), built.messages());
+        Optional<String> retryCacheKey = retryCacheKey(userId, request, built.messages(),
+            built.systemContext());
+        return new PreparedRequest(new ModelRequest(built.messages(), built.question(),
+            built.systemContext()), snapshot, cacheKey, retryCacheKey, built.sources(),
+            built.contextDurationMs(), built.ragDurationMs(), built.embeddingDurationMs(),
+            built.ragSearchDurationMs());
+    }
+
+    private String cacheMaterial(BuiltAiContext built) {
+        return built.question() + "\n" + built.systemContext();
     }
 
     private Optional<String> findCached(PreparedRequest prepared) {
@@ -250,7 +258,7 @@ public class AiChatService {
     }
 
     private Optional<String> retryCacheKey(String userId, ChatRequest request,
-                                           List<ChatMessage> context) {
+                                           List<ChatMessage> context, String systemContext) {
         if (context.size() < 2) {
             return Optional.empty();
         }
@@ -262,7 +270,7 @@ public class AiChatService {
         }
         List<ChatMessage> priorContext = context.subList(0, context.size() - 2);
         return Optional.of(cacheKeyFactory.create(userId, request.conversationId(),
-            request.message(), priorContext));
+            request.message() + "\n" + systemContext, priorContext));
     }
 
     private String normalized(String value) {
@@ -325,13 +333,17 @@ public class AiChatService {
         return cause.getClass().getSimpleName();
     }
 
-    private record PreparedRequest(List<ChatMessage> context,
+    private record PreparedRequest(ModelRequest modelRequest,
                                    List<ConversationMessage> conversationSnapshot,
                                    String cacheKey,
                                    Optional<String> retryCacheKey,
-                                   String modelQuestion,
                                    List<com.hammerly.ai.rag.RagSource> sources,
                                    long contextDurationMs,
-                                   long ragDurationMs) {
+                                   long ragDurationMs,
+                                   long embeddingDurationMs,
+                                   long ragSearchDurationMs) {
+        List<ChatMessage> context() {
+            return modelRequest.history();
+        }
     }
 }

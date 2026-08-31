@@ -30,6 +30,11 @@ public class OpenAiQueryEmbeddingProvider implements QueryEmbeddingProvider {
             .build();
     }
 
+    OpenAiQueryEmbeddingProvider(RagProperties properties, RestClient client) {
+        this.properties = properties;
+        this.client = client;
+    }
+
     @Override
     public float[] embed(String input) {
         JsonNode response = client.post().uri("/v1/embeddings")

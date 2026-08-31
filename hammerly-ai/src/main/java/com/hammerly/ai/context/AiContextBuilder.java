@@ -9,6 +9,6 @@ public interface AiContextBuilder {
 
     static AiContextBuilder basic() {
         return (userId, conversationId, storedContext, question) ->
-            new BuiltAiContext(storedContext, question, List.of());
+            new BuiltAiContext(storedContext, question, "", List.of());
     }
 }

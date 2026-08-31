@@ -44,7 +44,7 @@ public class KnowledgeDocumentRepository {
         for (int index = 0; index < chunks.size(); index++) {
             UUID chunkId = UUID.nameUUIDFromBytes((document.id() + ":" + index)
                 .getBytes(StandardCharsets.UTF_8));
-            String metadata = metadata(document, index);
+            String metadata = metadata(document, index, chunks.get(index));
             String vector = vectorLiteral(embeddings.get(index));
             int chunkIndex = index;
             jdbc.update(connection -> {
@@ -79,13 +79,24 @@ public class KnowledgeDocumentRepository {
             """, safeFailure, id);
     }
 
-    private String metadata(Document document, int index) {
+    private String metadata(Document document, int index, String content) {
         try {
-            return objectMapper.writeValueAsString(Map.of("documentId", document.id(),
-                "title", document.title(), "source", document.source(), "chunkIndex", index));
+            return objectMapper.writeValueAsString(Map.of(
+                "documentId", document.id(),
+                "title", document.title(),
+                "source", document.source(),
+                "sectionTitle", sectionTitle(content, document.title()),
+                "chunkIndex", index));
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Could not serialize chunk metadata", exception);
         }
+    }
+
+    private String sectionTitle(String content, String fallback) {
+        String firstLine = content.lines().findFirst().orElse("").strip();
+        if (firstLine.startsWith("## ")) return firstLine.substring(3).strip();
+        if (firstLine.startsWith("# ")) return firstLine.substring(2).strip();
+        return fallback;
     }
 
     static String vectorLiteral(float[] vector) {

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.mockito.ArgumentCaptor;
 
 class PgVectorRagRetrievalServiceTest {
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -38,7 +39,7 @@ class PgVectorRagRetrievalServiceTest {
         QueryEmbeddingProvider embeddings = mock(QueryEmbeddingProvider.class);
         when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(7L);
         when(embeddings.embed("How do I bid?")).thenReturn(new float[] {1f, 0f, 0f});
-        RagChunk match = new RagChunk("chunk-1", "Support Guide", "Bidding",
+        RagChunk match = new RagChunk("chunk-1", "document-1", "Bidding", "Support Guide",
             "A bid must be higher than the current bid.", 0.91);
         when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
             .thenReturn(List.of(match));
@@ -60,7 +61,8 @@ class PgVectorRagRetrievalServiceTest {
         RedisStateClient redis = mock(RedisStateClient.class);
         QueryEmbeddingProvider embeddings = mock(QueryEmbeddingProvider.class);
         when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(4L);
-        RagResult cached = new RagResult(List.of(new RagChunk("chunk-2", "Guide", "Watchlists",
+        RagResult cached = new RagResult(List.of(new RagChunk("chunk-2", "document-2",
+            "Watchlists", "Guide",
             "A watchlist is a bookmark.", 0.88)), 4);
         when(redis.get(anyString())).thenReturn(new ObjectMapper().writeValueAsString(cached));
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -69,7 +71,8 @@ class PgVectorRagRetrievalServiceTest {
 
         RagResult result = service.retrieve("How does a watchlist work?");
 
-        assertThat(result).isEqualTo(cached);
+        assertThat(result.chunks()).isEqualTo(cached.chunks());
+        assertThat(result.cacheHit()).isTrue();
         verify(embeddings, never()).embed(anyString());
         assertThat(registry.counter("rag.cache.hits").count()).isEqualTo(1);
     }
@@ -95,6 +98,59 @@ class PgVectorRagRetrievalServiceTest {
 
         assertThat(result.chunks()).isEmpty();
         assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(250));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void appliesReadyStatusCosineThresholdAndTopKToPgvectorSearch() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        RedisStateClient redis = mock(RedisStateClient.class);
+        QueryEmbeddingProvider embeddings = input -> new float[] {1f, 0f};
+        when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(2L);
+        when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+            .thenReturn(List.of());
+        PgVectorRagRetrievalService service = service(jdbc, redis, embeddings,
+            new SimpleMeterRegistry(), properties(Duration.ofSeconds(1)));
+
+        RagResult result = service.retrieve("How do I place a bid?");
+
+        assertThat(result.chunks()).isEmpty();
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Object[]> parameters = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).query(sql.capture(), any(RowMapper.class), parameters.capture());
+        assertThat(sql.getValue()).contains("d.status = 'READY'", "embedding <=>", "LIMIT ?");
+        assertThat(parameters.getValue()[2]).isEqualTo(0.25);
+        assertThat(parameters.getValue()[4]).isEqualTo(4);
+    }
+
+    @Test
+    void embeddingFailureFallsBackWithoutSearching() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        RedisStateClient redis = mock(RedisStateClient.class);
+        QueryEmbeddingProvider embeddings = mock(QueryEmbeddingProvider.class);
+        when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(1L);
+        when(embeddings.embed(anyString())).thenThrow(new IllegalStateException("provider down"));
+
+        RagResult result = service(jdbc, redis, embeddings, new SimpleMeterRegistry(),
+            properties(Duration.ofSeconds(1))).retrieve("question");
+
+        assertThat(result.chunks()).isEmpty();
+        verify(jdbc, never()).query(anyString(), any(RowMapper.class), any(Object[].class));
+    }
+
+    @Test
+    void databaseFailureFallsBackWithoutEmbedding() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        RedisStateClient redis = mock(RedisStateClient.class);
+        QueryEmbeddingProvider embeddings = mock(QueryEmbeddingProvider.class);
+        when(jdbc.queryForObject(anyString(), eq(Long.class)))
+            .thenThrow(new IllegalStateException("database down"));
+
+        RagResult result = service(jdbc, redis, embeddings, new SimpleMeterRegistry(),
+            properties(Duration.ofSeconds(1))).retrieve("question");
+
+        assertThat(result.chunks()).isEmpty();
+        verify(embeddings, never()).embed(anyString());
     }
 
     private PgVectorRagRetrievalService service(JdbcTemplate jdbc, RedisStateClient redis,

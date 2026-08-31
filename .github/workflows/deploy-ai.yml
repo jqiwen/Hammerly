@@ -98,9 +98,8 @@ jobs:
         --vpc-egress=private-ranges-only
       environment-variables: |-
         SPRING_PROFILES_ACTIVE=prod
-        SPRING_AI_OPENAI_SDK_CHAT_OPTIONS_REASONING_EFFORT=low
-        OPENAI_MODEL=${{ vars.OPENAI_MODEL || 'gpt-5-mini' }}
-        OPENAI_MAX_OUTPUT_TOKENS=${{ vars.OPENAI_MAX_OUTPUT_TOKENS || '250' }}
+        OPENAI_MODEL=${{ vars.OPENAI_MODEL || 'gpt-4.1-mini' }}
+        OPENAI_MAX_OUTPUT_TOKENS=${{ vars.OPENAI_MAX_OUTPUT_TOKENS || '350' }}
         HAMMERLY_AI_LLM_MAX_ATTEMPTS=${{ vars.HAMMERLY_AI_LLM_MAX_ATTEMPTS || '2' }}
         HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT=${{ vars.HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT || '8s' }}
         HAMMERLY_AI_LLM_IDLE_TIMEOUT=${{ vars.HAMMERLY_AI_LLM_IDLE_TIMEOUT || '10s' }}
@@ -109,8 +108,12 @@ jobs:
         REDIS_SSL=${{ vars.AI_REDIS_SSL }}
         HAMMERLY_REDIS_ENABLED=${{ vars.HAMMERLY_REDIS_ENABLED || 'false' }}
         HAMMERLY_KAFKA_ENABLED=${{ vars.HAMMERLY_KAFKA_ENABLED || 'false' }}
-        HAMMERLY_RAG_ENABLED=${{ vars.HAMMERLY_RAG_ENABLED || 'false' }}
+        HAMMERLY_RAG_ENABLED=${{ vars.HAMMERLY_RAG_ENABLED || 'true' }}
+        HAMMERLY_RAG_TOP_K=${{ vars.HAMMERLY_RAG_TOP_K || '4' }}
+        HAMMERLY_RAG_SIMILARITY_THRESHOLD=${{ vars.HAMMERLY_RAG_SIMILARITY_THRESHOLD || '0.25' }}
+        HAMMERLY_RAG_TIMEOUT=${{ vars.HAMMERLY_RAG_TIMEOUT || '2s' }}
         HAMMERLY_AI_EMBEDDING_PROVIDER=${{ vars.HAMMERLY_AI_EMBEDDING_PROVIDER || 'openai' }}
+        HAMMERLY_AI_EMBEDDING_MODEL=${{ vars.HAMMERLY_AI_EMBEDDING_MODEL || 'text-embedding-3-small' }}
         KAFKA_BOOTSTRAP_SERVERS=${{ vars.KAFKA_BOOTSTRAP_SERVERS || 'kafka-not-configured.invalid:9092' }}
         HAMMERLY_COMMIT_SHA=${{ github.sha }}
       secret-bindings: |-
