@@ -37,6 +37,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
     "spring.datasource.hikari.data-source-properties.sslmode=disable",
     "hammerly.marketplace-cache.enabled=false",
     "hammerly.kafka.enabled=false",
+    "hammerly.ai.internal-token=test-internal-token",
+    "hammerly.internal-token-required=true",
     "jwt.secret=test-secret-compatible-with-node-jsonwebtoken"
 })
 @AutoConfigureMockMvc
@@ -258,6 +260,43 @@ class HammerlyApiIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.user.firstName").value("John"))
             .andExpect(jsonPath("$.user.email").doesNotExist());
+    }
+
+    @Test
+    void protectedKnowledgeIngestionCreatesPendingDocumentAndOutboxAtomically() throws Exception {
+        String payload = json(Map.of(
+            "title", "Hammerly Support Guide",
+            "source", "docs/knowledge-base/hammerly-support.md",
+            "content", "Bids must be higher than the current bid on an active auction."));
+
+        mvc.perform(post("/internal/knowledge/documents")
+                .contentType(MediaType.APPLICATION_JSON).content(payload))
+            .andExpect(status().isUnauthorized());
+
+        MvcResult created = mvc.perform(post("/internal/knowledge/documents")
+                .header("X-Hammerly-Internal-Token", "test-internal-token")
+                .contentType(MediaType.APPLICATION_JSON).content(payload))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.status").value("PENDING"))
+            .andReturn();
+        String documentId = body(created).path("id").asText();
+
+        mvc.perform(get("/internal/knowledge/documents/{id}", documentId)
+                .header("X-Hammerly-Internal-Token", "test-internal-token"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(documentId));
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+            "SELECT count(*) FROM outbox_events WHERE aggregate_id = ?::uuid AND published_at IS NULL",
+            Long.class, documentId)).isEqualTo(1L);
+
+        mvc.perform(post("/internal/knowledge/documents")
+                .header("X-Hammerly-Internal-Token", "test-internal-token")
+                .contentType(MediaType.APPLICATION_JSON).content(payload))
+            .andExpect(status().isAccepted())
+            .andExpect(jsonPath("$.id").value(documentId));
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+            "SELECT count(*) FROM outbox_events WHERE aggregate_id = ?::uuid", Long.class, documentId))
+            .isEqualTo(1L);
     }
 
     private MvcResult addCard(String token, String cardType, String number, boolean isDefault) throws Exception {

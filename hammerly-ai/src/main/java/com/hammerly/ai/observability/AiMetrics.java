@@ -64,12 +64,19 @@ public class AiMetrics {
     }
 
     public void requestCompleted(String outcome, long startedAtNanos) {
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - startedAtNanos);
         Timer.builder("ai.request.duration")
             .description("AI request duration from acceptance through terminal completion")
             .tag("outcome", outcome)
             .publishPercentileHistogram()
             .register(registry)
-            .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
+            .record(elapsed);
+        Timer.builder("ai.end.to.end.duration")
+            .description("AI end-to-end server duration")
+            .tag("outcome", outcome)
+            .publishPercentileHistogram()
+            .register(registry)
+            .record(elapsed);
     }
 
     public void aiRequestStarted() {
@@ -93,13 +100,17 @@ public class AiMetrics {
     }
 
     public void providerFirstToken(String operation, long startedAtNanos) {
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - startedAtNanos);
         registry.timer("hammerly.ai.provider.first_token.latency", "operation", operation)
-            .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
+            .record(elapsed);
+        registry.timer("ai.provider.first.token", "operation", operation).record(elapsed);
     }
 
     public void providerSuccess(String operation, long startedAtNanos) {
         registry.counter("hammerly.ai.provider.success", "operation", operation).increment();
         providerLatency(operation, "success", startedAtNanos);
+        registry.timer("ai.provider.full.response", "operation", operation)
+            .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
     }
 
     public void providerFailure(String operation, OpenAiProviderFailure failure,
@@ -121,6 +132,7 @@ public class AiMetrics {
         registry.counter("hammerly.ai.provider.retry",
             "operation", operation,
             "category", failure.category().tag()).increment();
+        registry.counter("ai.provider.retries", "category", failure.category().tag()).increment();
     }
 
     public void bulkheadRejected() {
@@ -150,15 +162,45 @@ public class AiMetrics {
             .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
     }
 
-    /**
-     * Prepared Phase 6 boundary for future RAG code. It is intentionally never
-     * called by the current application, so no fake observations are emitted.
-     */
     public void ragSearchCompleted(long startedAtNanos) {
+        ragSearchCompleted(startedAtNanos, 0);
+    }
+
+    public void ragSearchCompleted(long startedAtNanos, int results) {
         Timer.builder("rag.search.duration")
             .description("RAG search duration")
             .publishPercentileHistogram()
             .register(registry)
+            .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
+        ragSearchResults(results);
+    }
+
+    public void ragEmbeddingCompleted(long startedAtNanos) {
+        Timer.builder("rag.embedding.duration")
+            .description("Query embedding duration")
+            .publishPercentileHistogram()
+            .register(registry)
+            .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
+    }
+
+    public void ragSearchResults(int results) {
+        registry.summary("rag.search.results").record(results);
+    }
+
+    public void ragCacheHit() {
+        registry.counter("rag.cache.hits").increment();
+    }
+
+    public void ragCacheMiss() {
+        registry.counter("rag.cache.misses").increment();
+    }
+
+    public void ragFailure(String stage) {
+        registry.counter("rag.failures", "stage", stage).increment();
+    }
+
+    public void contextBuilt(long startedAtNanos) {
+        registry.timer("hammerly.ai.context.build.duration")
             .record(Duration.ofNanos(System.nanoTime() - startedAtNanos));
     }
 }

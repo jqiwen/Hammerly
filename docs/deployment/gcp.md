@@ -145,13 +145,13 @@ openssl rand -base64 48 | gcloud secrets versions add hammerly-ai-internal-token
 Grant runtime access:
 
 ```bash
-for HAMMERLY_SECRET_NAME in hammerly-supabase-db-url hammerly-jwt-secret hammerly-ai-internal-token; do
+for HAMMERLY_SECRET_NAME in hammerly-supabase-db-url hammerly-jwt-secret hammerly-redis-password hammerly-ai-internal-token; do
   gcloud secrets add-iam-policy-binding "${HAMMERLY_SECRET_NAME}" \
     --member="serviceAccount:${HAMMERLY_CORE_RUNTIME_EMAIL}" \
     --role="roles/secretmanager.secretAccessor"
 done
 
-for HAMMERLY_SECRET_NAME in hammerly-openai-api-key hammerly-redis-password hammerly-ai-internal-token; do
+for HAMMERLY_SECRET_NAME in hammerly-supabase-db-url hammerly-openai-api-key hammerly-redis-password hammerly-ai-internal-token; do
   gcloud secrets add-iam-policy-binding "${HAMMERLY_SECRET_NAME}" \
     --member="serviceAccount:${HAMMERLY_AI_RUNTIME_EMAIL}" \
     --role="roles/secretmanager.secretAccessor"
@@ -168,7 +168,7 @@ done
 
 ## 6. Configure optional demo Redis before AI deployment
 
-Demo-on mode uses a Basic 1 GiB Memorystore instance named `hammerly-redis` with AUTH on the `default` VPC. AI connects through Cloud Run Direct VPC egress; no continuously billed Serverless VPC Access connector is needed. Demo-off mode does not require a reachable Redis endpoint. The workflow uses these additional non-secret variables:
+Demo-on mode uses a Basic 1 GiB Memorystore instance named `hammerly-redis` with AUTH on the `default` VPC. AI and Core connect through Cloud Run Direct VPC egress; no continuously billed Serverless VPC Access connector is needed. Demo-off mode does not require a reachable Redis endpoint. The workflows use these additional non-secret variables:
 
 ```text
 AI_VPC_NETWORK=default
@@ -203,9 +203,11 @@ CORE_CLOUD_RUN_SERVICE=hammerly-backend
 CORE_RUNTIME_SERVICE_ACCOUNT
 CORE_DB_SECRET=hammerly-supabase-db-url
 CORE_JWT_SECRET=hammerly-jwt-secret
+CORE_REDIS_PASSWORD_SECRET=hammerly-redis-password
 
 AI_CLOUD_RUN_SERVICE=hammerly-ai
 AI_RUNTIME_SERVICE_ACCOUNT
+AI_DB_SECRET=hammerly-supabase-db-url
 AI_OPENAI_SECRET=hammerly-openai-api-key
 AI_REDIS_PASSWORD_SECRET=hammerly-redis-password
 AI_INTERNAL_TOKEN_SECRET=hammerly-ai-internal-token
@@ -214,6 +216,7 @@ AI_REDIS_PORT
 AI_REDIS_SSL
 AI_VPC_NETWORK=default
 AI_VPC_SUBNET=default
+AI_CLOUD_RUN_MIN_INSTANCES=0
 
 HAMMERLY_FRONTEND_URL=https://hammerly.jqiwen.com
 HAMMERLY_AI_URL

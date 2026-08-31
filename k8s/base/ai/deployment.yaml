@@ -65,6 +65,19 @@ spec:
               value: kafka:9092
             - name: HAMMERLY_KAFKA_ENABLED
               value: "true"
+            - name: SUPABASE_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hammerly-app-secrets
+                  key: SUPABASE_DB_URL
+            - name: HAMMERLY_RAG_ENABLED
+              value: "true"
+            - name: HAMMERLY_DB_SSL_MODE
+              value: require
+            - name: HAMMERLY_AI_EMBEDDING_PROVIDER
+              value: openai
+            - name: HAMMERLY_AI_EMBEDDING_MODEL
+              value: text-embedding-3-small
             - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
               value: health,prometheus
           ports:
@@ -102,4 +115,3 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-

@@ -8,6 +8,8 @@ type AiMessageProps = {
 
 export function AiMessage({ message, isStreaming = false }: AiMessageProps) {
   const isAssistant = message.role === 'assistant';
+  const sources = [...new Map((message.sources ?? []).map((source) =>
+    [`${source.title}\u0000${source.source}`, source])).values()];
 
   return (
     <div className={`flex ${isAssistant ? 'justify-start' : 'justify-end'}`}>
@@ -43,6 +45,20 @@ export function AiMessage({ message, isStreaming = false }: AiMessageProps) {
                 style={{ animationDelay: `${dot * 140}ms` }}
               />
             ))}
+          </div>
+        )}
+        {isAssistant && sources.length > 0 && (
+          <div className="mt-3 border-t border-[#8B2635]/10 pt-2">
+            <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#8B2635]">
+              Sources
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
+              {sources.map((source) => (
+                <li key={`${source.title}-${source.source}`}>
+                  • {source.title}{source.source ? ` — ${source.source}` : ''}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>

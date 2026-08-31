@@ -50,6 +50,22 @@ spec:
               value: hammerly-worker-v1
             - name: HAMMERLY_WORKER_CONCURRENCY
               value: "3"
+            - name: SUPABASE_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hammerly-app-secrets
+                  key: SUPABASE_DB_URL
+            - name: HAMMERLY_DB_SSL_MODE
+              value: require
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hammerly-app-secrets
+                  key: OPENAI_API_KEY
+            - name: HAMMERLY_AI_EMBEDDING_PROVIDER
+              value: openai
+            - name: HAMMERLY_AI_EMBEDDING_MODEL
+              value: text-embedding-3-small
             - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
               value: health,prometheus
           ports:
@@ -87,4 +103,3 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-

@@ -5,6 +5,7 @@ import com.hammerly.backend.dto.AiChatResponse;
 import com.hammerly.backend.dto.AiServiceStatus;
 import com.hammerly.backend.exception.AiRateLimitExceededException;
 import com.hammerly.backend.exception.AiServiceUnavailableException;
+import com.hammerly.backend.observability.CoreAiMetrics;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -12,6 +13,7 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -26,25 +28,37 @@ public class AiPlatformClient {
     private static final Logger log = LoggerFactory.getLogger(AiPlatformClient.class);
 
     private final RestClient restClient;
+    private final CoreAiMetrics metrics;
 
     public AiPlatformClient(@Qualifier("aiPlatformRestClient") RestClient restClient) {
+        this(restClient, null);
+    }
+
+    @Autowired
+    public AiPlatformClient(@Qualifier("aiPlatformRestClient") RestClient restClient,
+                            CoreAiMetrics metrics) {
         this.restClient = restClient;
+        this.metrics = metrics;
     }
 
     public Optional<AiServiceStatus> status() {
+        long startedAt = System.nanoTime();
         try {
             AiServiceStatus response = restClient.get()
                 .uri("/internal/ai/status")
                 .retrieve()
                 .body(AiServiceStatus.class);
+            record("status", "success", startedAt);
             return Optional.ofNullable(response);
         } catch (RestClientException exception) {
+            record("status", "error", startedAt);
             log.warn("Hammerly AI status check failed ({})", exception.getClass().getSimpleName());
             return Optional.empty();
         }
     }
 
     public AiPlatformResponse<AiChatResponse> chat(AiChatRequest request, String userId) {
+        long startedAt = System.nanoTime();
         try {
             ResponseEntity<AiChatResponse> response = restClient.post()
                 .uri("/internal/ai/chat")
@@ -62,16 +76,20 @@ public class AiPlatformClient {
             if (body == null || body.answer() == null || body.answer().isBlank()) {
                 throw new AiServiceUnavailableException("Hammerly AI returned an empty response.");
             }
+            record("chat", "success", startedAt);
             return new AiPlatformResponse<>(body, rateLimit(response.getHeaders()));
         } catch (AiRateLimitExceededException | AiServiceUnavailableException exception) {
+            record("chat", "error", startedAt);
             throw exception;
         } catch (RestClientException exception) {
+            record("chat", "error", startedAt);
             log.warn("Hammerly AI chat call failed ({})", rootCauseName(exception));
             throw new AiServiceUnavailableException(UNAVAILABLE_MESSAGE, exception);
         }
     }
 
     public AiRateLimitStatus acquireStreamPermit(String userId) {
+        long startedAt = System.nanoTime();
         try {
             ResponseEntity<Void> response = restClient.post()
                 .uri("/internal/ai/chat/rate-limit")
@@ -83,16 +101,20 @@ public class AiPlatformClient {
                         throw rateLimitExceeded(clientResponse.getHeaders());
                     })
                 .toBodilessEntity();
+            record("rate_limit", "success", startedAt);
             return rateLimit(response.getHeaders());
         } catch (AiRateLimitExceededException exception) {
+            record("rate_limit", "rejected", startedAt);
             throw exception;
         } catch (RestClientException exception) {
+            record("rate_limit", "error", startedAt);
             log.warn("Hammerly AI rate-limit permit call failed ({})", rootCauseName(exception));
             throw new AiServiceUnavailableException(UNAVAILABLE_MESSAGE, exception);
         }
     }
 
     public void stream(AiChatRequest request, String userId, OutputStream browserOutput) {
+        long startedAt = System.nanoTime();
         try {
             restClient.post()
                 .uri("/internal/ai/chat/stream")
@@ -108,9 +130,12 @@ public class AiPlatformClient {
                     copyAndFlush(response.getBody(), browserOutput);
                     return null;
                 });
+            record("stream", "success", startedAt);
         } catch (AiServiceUnavailableException exception) {
+            record("stream", "error", startedAt);
             throw exception;
         } catch (RestClientException exception) {
+            record("stream", "error", startedAt);
             log.warn("Hammerly AI stream proxy failed ({})", rootCauseName(exception));
             throw new AiServiceUnavailableException(UNAVAILABLE_MESSAGE, exception);
         }
@@ -159,5 +184,9 @@ public class AiPlatformClient {
             cause = cause.getCause();
         }
         return cause.getClass().getSimpleName();
+    }
+
+    private void record(String operation, String outcome, long startedAt) {
+        if (metrics != null) metrics.completed(operation, outcome, startedAt);
     }
 }

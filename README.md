@@ -16,39 +16,44 @@ The synchronous user-facing path is:
 React 19
   ↓ HTTP + JWT + SSE
 Hammerly Core (hammerly-backend, :5000)
-  ↓ trusted internal user header + SSE
-Hammerly AI (hammerly-ai, :5001)
-  ├── Redis (:6379)
-  │   ├── recent conversation state
-  │   ├── completed-response cache
-  │   └── distributed rate limiting
-  └── OpenAI through Spring AI
+  ├── PostgreSQL + Flyway
+  ├── Redis marketplace cache-aside
+  └── trusted internal user header + SSE
        ↓
-      SSE response
+     Hammerly AI (hammerly-ai, :5001)
+       ├── Redis conversation, response, rate-limit, and RAG caches
+       ├── query embedding
+       ├── cosine retrieval → PostgreSQL + pgvector
+       ├── bounded summary + recent turns + grounded chunks
+       └── OpenAI through Spring AI (or deterministic local provider)
+            ↓
+          metadata/chunk/done SSE events → React response + Sources
 ```
 
-The asynchronous side-effect path added in Phase 4 is:
+The durable knowledge-ingestion path is:
 
 ```text
-successful AI turn committed to Redis
-  ↓ non-blocking dispatch on a dedicated executor
-Kafka (:9092, KRaft)
-  ├── hammerly.ai.events.v1
-  └── hammerly.ai.jobs.v1
-       ↓ consumer group hammerly-worker-v1
+protected knowledge POST
+  ↓ one PostgreSQL transaction
+knowledge_documents(PENDING) + outbox_events
+  ↓ at-least-once outbox relay
+Kafka hammerly.ai.jobs.v1 (key = document ID)
+  ↓ consumer group hammerly-worker-v1
 hammerly-worker (:5002)
-  ├── AI-turn analytics metrics
-  └── extractive conversation summaries → separate Redis key
+  ↓ PROCESSING → deterministic chunking → embeddings
+atomic chunk/vector replacement in pgvector
+  ↓
+READY + knowledge-base version increment
 ```
 
-Kafka is not in the real-time AI response path. Hammerly AI does not wait for Kafka metadata, delivery, acknowledgment, or the worker before completing a chat. A stopped worker leaves chat fully operational while Kafka retains its uncommitted backlog. When the same consumer group restarts, it resumes from committed offsets. A broker outage is also isolated from chat, but events attempted while the broker is completely unavailable are best-effort and are not guaranteed to be recovered.
+Kafka is **not in the synchronous AI response path**. A stopped broker or worker does not block chat. Knowledge events are durable in the transactional outbox while Kafka is unavailable; after recovery the relay republishes pending rows. AI conversation analytics events remain best-effort side effects and do not change the chat result.
 
 The repository contains:
 
 - `hammerly-ui/`: React 19, TypeScript, Vite, and Tailwind UI.
 - `hammerly-backend/`: authentication, users, profiles, auctions, bids, watchlists, payment metadata, PostgreSQL/Flyway persistence, and the public AI proxy.
-- `hammerly-ai/`: OpenAI integration, SSE streaming, bounded provider retry, Redis conversation/cache/rate-limit state, and the asynchronous Kafka producer.
-- `hammerly-worker/`: independent Java 21/Spring Boot 3.5.16 Kafka consumer for idempotent summaries and lightweight analytics.
+- `hammerly-ai/`: OpenAI integration, bounded RAG retrieval, prompt grounding, citations, SSE streaming, bounded provider retry, and Redis state/caches.
+- `hammerly-worker/`: Java 21/Spring Boot 3.5.16 at-least-once consumer for idempotent knowledge indexing, summaries, and lightweight analytics.
 
 ## Phase 3 — Redis-backed AI state
 
@@ -105,8 +110,8 @@ evidence, not a production OpenAI capacity guarantee. See
 
 Core, AI, and Worker now expose Prometheus scrape endpoints, with a local Prometheus/Grafana stack
 and a provisioned **Hammerly — System Overview** dashboard. The dashboard covers traffic, latency,
-provider resilience, Redis cache behavior, Kafka processing, JVM health, and the future RAG search
-boundary. Prometheus scrapes every five seconds and all three local targets have been validated UP.
+provider TTFT/full completion, Redis and marketplace cache behavior, RAG embedding/search/results,
+Kafka processing/DLT, and JVM health. Prometheus scrapes every five seconds.
 
 Phase 7 merges this configuration into the main local stack. Start it with:
 
@@ -141,11 +146,12 @@ exposes health only, so metrics are not published on the current public applicat
 
 Canonical Prometheus metrics include:
 
-- `ai_requests_total` and histogram `ai_request_duration_seconds`
+- `ai_requests_total`, `ai_end_to_end_duration_seconds`, and `ai_core_proxy_duration_seconds`
 - `llm_errors_total`, provider first-token latency, retries, 429/5xx/timeouts, bulkhead, and circuit state
-- `redis_cache_hits_total`, `redis_cache_misses_total`, and `active_conversations`
+- `ai_provider_first_token_seconds`, `ai_provider_full_response_seconds`, and `ai_provider_retries_total`
+- `redis_cache_hits_total`, `redis_cache_misses_total`, `marketplace_cache_*`, and `active_conversations`
 - histogram `kafka_processing_duration_seconds`, plus bounded worker outcome/retry/DLT metrics
-- histogram `rag_search_duration_seconds` only after a real future RAG search is observed
+- `rag_embedding_duration_seconds`, `rag_search_duration_seconds`, `rag_search_results`, and `rag_cache_*`
 
 ## CI/CD pipeline
 
@@ -186,7 +192,8 @@ https://hammerly.jqiwen.com (GitHub Pages)
   → hammerly-backend (Cloud Run)
     → hammerly-ai (Cloud Run)
       ├── OpenAI (key from Secret Manager)
-      └── hammerly-redis (Memorystore Basic, private default VPC)
+      ├── hammerly-redis (Memorystore Basic, private default VPC)
+      └── Supabase PostgreSQL + pgvector (when RAG is enabled)
 ```
 
 In full demo mode, AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` network and `us-west1` `default` subnet. Redis AUTH is stored in Secret Manager; its host and port are non-secret settings. In demo-off mode, Redis and Kafka are disabled and AI uses bounded, TTL-aware process-local state, so chat remains available while the worker is scaled to zero and the Kafka VM is stopped. See [`docs/deployment/gcp.md`](docs/deployment/gcp.md) for the idempotent ON/OFF commands.
@@ -210,9 +217,9 @@ when running Java processes directly. Important Phase 4/5 variables are:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HAMMERLY_REDIS_ENABLED` | `true` in base config, `false` in production/example env | Selects Redis or bounded process-local AI state |
+| `HAMMERLY_REDIS_ENABLED` | `true` locally, `false` production default | Selects Redis or bounded process-local AI state |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker address used by AI and worker |
-| `HAMMERLY_KAFKA_ENABLED` | `true` in base config, `false` in production/example env | Enables best-effort AI event publication |
+| `HAMMERLY_KAFKA_ENABLED` | `true` locally, `false` production default | Enables best-effort AI event publication |
 | `HAMMERLY_WORKER_GROUP_ID` | `hammerly-worker-v1` | Durable worker consumer group |
 | `HAMMERLY_WORKER_CONCURRENCY` | `3` | Parallel listener containers |
 | `HAMMERLY_AI_SUMMARY_AFTER_MESSAGES` | `10` | Stored-message summary threshold |
@@ -220,31 +227,47 @@ when running Java processes directly. Important Phase 4/5 variables are:
 | `HAMMERLY_WORKER_PROCESSING_LOCK_TTL` | `2m` | In-progress event lock TTL |
 | `HAMMERLY_WORKER_SUMMARY_TTL` | `7d` | Separate summary TTL |
 | `HAMMERLY_AI_INTERNAL_TOKEN` | empty locally | Shared Core-to-AI production request token |
-| `HAMMERLY_AI_LLM_MAX_ATTEMPTS` | `3` | Total provider attempts including the first |
-| `HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT` | `12s` | Maximum wait for first streamed token |
-| `HAMMERLY_AI_LLM_IDLE_TIMEOUT` | `15s` | Maximum gap between streamed tokens |
+| `HAMMERLY_MARKETPLACE_CACHE_ENABLED` | `true` locally, `false` production default | Core Redis cache-aside with PostgreSQL fallback |
+| `HAMMERLY_MARKETPLACE_CACHE_OPERATION_TIMEOUT` | `500ms` | Hard deadline before marketplace reads fall through to PostgreSQL |
+| `REDIS_CONNECT_TIMEOUT` / `REDIS_COMMAND_TIMEOUT` | `250ms` | Bounds synchronous Redis failure detection in the local services |
+| `HAMMERLY_AI_LLM_MAX_ATTEMPTS` | `2` | Total attempts; retry is allowed only before the first token |
+| `HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT` | `8s` | Maximum wait for the first streamed token per attempt |
+| `HAMMERLY_AI_LLM_IDLE_TIMEOUT` | `10s` | Maximum gap between streamed tokens |
+| `OPENAI_MAX_OUTPUT_TOKENS` | `250` | Bounded support-answer output budget |
+| `OPENAI_REASONING_EFFORT` | `low` | Spring AI 1.1.7 OpenAI SDK reasoning effort |
+| `HAMMERLY_RAG_ENABLED` | `false` in service config, `true` in Compose | Query embedding and pgvector retrieval switch |
+| `HAMMERLY_RAG_TOP_K` | `4` | Maximum retrieved chunks |
+| `HAMMERLY_RAG_SIMILARITY_THRESHOLD` | `0.25` | Minimum cosine similarity |
+| `HAMMERLY_RAG_TIMEOUT` | `2s` | Whole retrieval deadline before graceful degradation |
+| `HAMMERLY_RAG_CACHE_TTL` | `5m` | Versioned Redis retrieval-cache TTL |
+| `HAMMERLY_AI_CONTEXT_RECENT_TURNS` | `6` | Recent user/assistant turns supplied to the model |
+| `HAMMERLY_AI_CONTEXT_MAX_CHARS` | `16000` | Combined model-context character bound |
+| `HAMMERLY_AI_EMBEDDING_PROVIDER` | `deterministic` locally | Shared ingestion/query provider (`openai` in live environments) |
+| `HAMMERLY_RAG_CHUNK_TOKENS` | `650` | Deterministic whitespace-token approximation per chunk |
+| `HAMMERLY_RAG_CHUNK_OVERLAP_TOKENS` | `100` | Approximate chunk overlap |
 | `HAMMERLY_AI_LLM_MAX_CONCURRENT_CALLS` | `32` | Production provider bulkhead permits |
 | `HAMMERLY_AI_STREAM_MAX_CONCURRENT` | `1100` | AI MVC streaming executor bound |
 | `HAMMERLY_AI_CONNECTION_POOL_MAX_TOTAL` | `1100` | Core-to-AI outbound pool bound |
 
 ## Run the full local stack
 
-The fresh-clone path requires Docker with Compose, a PostgreSQL connection, and a long random local
-JWT secret. Java, Maven, Redis, Kafka, Prometheus, and Grafana do not need to be installed on the host.
+The fresh-clone path requires Docker with Compose and a long random local JWT secret. The default
+stack includes PostgreSQL with pgvector, Redis, Kafka, Prometheus, and Grafana.
 The UI remains a separately started development service on port 3000.
 
 ```bash
 git clone https://github.com/jqiwen/Hammerly.git
 cd Hammerly
 cp .env.example .env
-# Fill SUPABASE_DB_URL and JWT_SECRET in .env.
+# Fill JWT_SECRET in .env. Leave SUPABASE_DB_* blank for local pgvector.
 docker compose up -d --build
 ```
 
-The default stack starts `backend`, `ai`, `worker`, `redis`, `kafka`, `prometheus`, and `grafana`.
-AI uses the deterministic, no-cost `loadtest` provider by default. The example environment keeps its
-Redis/Kafka integrations off; set both enable flags to `true` when exercising the full local state,
-worker, and Phase 6 metrics path.
+The default stack starts `backend`, `ai`, `worker`, `postgres`/pgvector, `redis`, `kafka`,
+`prometheus`, and `grafana`.
+AI uses the deterministic, no-cost `loadtest` provider by default. The example environment enables
+the local Redis/Kafka integrations so cache, outbox, worker, and observability flows work after one
+Compose startup; production profiles still default both optional integrations off.
 An existing host `OPENAI_API_KEY` is not used for chat unless `.env` explicitly sets
 `HAMMERLY_AI_PROFILE=live` and supplies the key.
 
@@ -260,20 +283,35 @@ docker compose down -v
 `docker compose down` preserves named data volumes. The `-v` form intentionally removes local Redis,
 Kafka, Prometheus, Grafana, and optional PostgreSQL data.
 
-### Optional local PostgreSQL
+### PostgreSQL / Supabase
 
-Supabase is the normal default. To avoid any external database prerequisite, fill these matching
-values in `.env`: `POSTGRES_PASSWORD`, `SUPABASE_DB_USERNAME`, and `SUPABASE_DB_PASSWORD`; set
-`SUPABASE_DB_URL=jdbc:postgresql://postgres:5432/hammerly` and
-`HAMMERLY_DB_SSL_MODE=disable`. Then run:
+Compose defaults to `pgvector/pgvector:pg17` at `postgres:5432` (host port `5433`). To use Supabase,
+set `SUPABASE_DB_URL`, username/password as needed, and `HAMMERLY_DB_SSL_MODE=require`. Supabase must
+have the `vector` extension enabled before Flyway V4 runs if the project role cannot create
+extensions: `CREATE EXTENSION IF NOT EXISTS vector;`.
 
-```bash
-docker compose --profile local-db up -d --build
+### Knowledge ingestion and retrieval evaluation
+
+With the full stack running and a shared internal token configured, ingest and poll the sample:
+
+```powershell
+.\scripts\knowledge\ingest-support.ps1 -InternalToken $env:HAMMERLY_AI_INTERNAL_TOKEN
 ```
 
-The profile adds PostgreSQL 17 with a persistent named volume and readiness check. It is not started
-by the default command. It is available to containers at `postgres:5432` and, when host access is
-needed, at `localhost:5433` by default to avoid a typical local PostgreSQL conflict.
+The expected lifecycle is `202/PENDING → PROCESSING → READY`. Reposting identical source/content is
+deduplicated. Run the no-cost retrieval evaluation with:
+
+```powershell
+cd hammerly-worker
+.\mvnw.cmd -Dtest=RagRetrievalEvaluationTest test
+```
+
+This reports deterministic Recall@4/hit rate against
+[`docs/rag/evaluation.json`](docs/rag/evaluation.json); it is not generated-answer accuracy.
+The deterministic embedding is a repeatable lexical test double, not a semantic model. When using it
+to exercise citation transport against one broad sample chunk, a lower local
+`HAMMERLY_RAG_SIMILARITY_THRESHOLD` may be appropriate; keep a validated threshold for OpenAI/live
+embeddings.
 
 Ports default to UI `3000`, Core `5000`, AI `5001`, worker management `5002`, Redis `6379`, Kafka
 `9092`, Grafana `3001`, and Prometheus `9090`. Containers use `redis:6379`, `kafka:29092`,
@@ -311,26 +349,35 @@ cd ..\hammerly-backend
 .\mvnw.cmd test
 
 cd ..\hammerly-ui
+npm ci
 npm run type-check
 npm run lint
 npm run build
 ```
 
-Worker tests use embedded KRaft Kafka and do not require Docker, Redis, OpenAI, or paid calls. Core integration tests use Testcontainers PostgreSQL when Docker is available.
+Worker tests use embedded KRaft Kafka and deterministic embeddings; CI makes no paid API call. Core
+integration tests use the pgvector PostgreSQL Testcontainers image when Docker is available.
 
 Run the free deterministic SSE smoke/full suite using the commands and safety guard in
 [`load-test/phase5/README.md`](load-test/phase5/README.md). Full mode refuses to run without an
 explicit load-test provider selection.
 
-## Later phases
+## Failure behavior and latency tuning
 
-Phase 4 defines `embedding.requested` and an embedding handler boundary only. The following are deliberately not implemented yet:
+Redis failures fall through to PostgreSQL or uncached AI work. The marketplace cache has a hard
+operation deadline and AI briefly short-circuits repeated Redis operations after a connection
+failure. Query embedding, PostgreSQL, or
+vector-search failures are bounded by `HAMMERLY_RAG_TIMEOUT` and chat continues without sources.
+Kafka is absent from chat; durable ingestion stays pending in the outbox until Kafka recovers.
+Worker delivery is at least once, with stable event IDs, Redis processing claims, deterministic
+chunk IDs, atomic replacement, retries, DLT publication, and sanitized `FAILED` state.
 
-- knowledge-base/document ingestion and chunking
-- embedding model integration and embedding storage
-- pgvector schema and vector similarity search
-- retrieval, source citation, and prompt grounding
-- RAG evaluation and retrieval caching
+The former interactive worst case allowed three provider attempts with a 12-second first-token
+timeout plus backoff while Core waited roughly 45–50 seconds. Defaults are now two attempts, an
+8-second first-token deadline, 10-second idle deadline, capped two-second `Retry-After`, and short
+250-token/low-reasoning support answers. Provider retry remains impossible after any token has been
+emitted. Cloud Run cold-start cost/latency is selected with GitHub variable
+`AI_CLOUD_RUN_MIN_INSTANCES`: `0` for cost saving or `1` for a warm portfolio/demo instance.
 
 The GKE demo is intentionally separate from the Cloud Run production path. Prometheus and Grafana
 are private ClusterIP services reached through `kubectl port-forward`; in-cluster Redis and Kafka are

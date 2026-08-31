@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -49,7 +50,7 @@ public class OpenAiProviderExecutor {
                                   Retry retry,
                                   Bulkhead bulkhead,
                                   TimeLimiter timeLimiter,
-                                  ExecutorService blockingExecutor) {
+                                  @Qualifier("llmBlockingExecutor") ExecutorService blockingExecutor) {
         this.diagnostics = diagnostics;
         this.metrics = metrics;
         this.properties = properties;

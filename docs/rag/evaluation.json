@@ -1,0 +1,14 @@
+[
+  {"question":"How do I create a Hammerly account?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["first name","email","password"]},
+  {"question":"Why can I not register the same email twice?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["unique","email"]},
+  {"question":"How do I update my profile?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["phone","avatar","password"]},
+  {"question":"How can a seller create an auction?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["starting price","duration","condition"]},
+  {"question":"How do I place a bid?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["higher","current bid","active"]},
+  {"question":"Can a seller bid on their own auction?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["cannot bid","own auction"]},
+  {"question":"What happens when an auction expires?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["end time","rejected","no longer active"]},
+  {"question":"Does Hammerly automatically charge the auction winner?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["does not automatically charge","payment"]},
+  {"question":"How does a watchlist work?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["bookmark","remove","does not place a bid"]},
+  {"question":"Why does AI support show Sources?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["retrieves matching passages","Sources","citations"]},
+  {"question":"Does AI support stream answers?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["stream incrementally","full answer"]},
+  {"question":"What statuses does knowledge ingestion use?","expectedSource":"docs/knowledge-base/hammerly-support.md","expectedKeyConcepts":["PENDING","PROCESSING","READY","FAILED"]}
+]

@@ -3,10 +3,13 @@ package com.hammerly.worker.knowledge;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hammerly.worker.event.EmbeddingRequestedPayload;
 import com.hammerly.worker.event.EventEnvelope;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 @Component
 public class KnowledgeFailureRecorder {
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeFailureRecorder.class);
     private final ObjectMapper objectMapper;
     private final KnowledgeDocumentRepository repository;
 
@@ -23,8 +26,10 @@ public class KnowledgeFailureRecorder {
                 event.payload(), EmbeddingRequestedPayload.class);
             repository.markFailed(payload.documentId(), "Embedding failed after retries ("
                 + rootCause(failure).getClass().getSimpleName() + ")");
-        } catch (Exception ignored) {
+        } catch (Exception exception) {
             // The DLT record remains the source of truth when malformed input cannot identify a document.
+            log.warn("Could not associate dead-letter event with a knowledge document errorType={}",
+                rootCause(exception).getClass().getSimpleName());
         }
     }
 

@@ -2,6 +2,7 @@ package com.hammerly.worker.config;
 
 import com.hammerly.worker.consumer.EventTypeExtractor;
 import com.hammerly.worker.observability.WorkerMetrics;
+import com.hammerly.worker.knowledge.KnowledgeFailureRecorder;
 import java.time.Clock;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
@@ -29,11 +30,13 @@ public class WorkerKafkaConfiguration {
 
     @Bean
     DefaultErrorHandler kafkaErrorHandler(KafkaTemplate<String, String> kafkaTemplate,
-                                          WorkerMetrics metrics) {
+                                          WorkerMetrics metrics,
+                                          KnowledgeFailureRecorder failureRecorder) {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
             kafkaTemplate, (record, exception) -> {
                 String eventType = EventTypeExtractor.fromJson((String) record.value());
                 metrics.dlt(eventType);
+                failureRecorder.recordIfKnowledgeEvent((String) record.value(), exception);
                 log.error("Worker event sent to DLT eventType={} topic={} partition={} offset={} errorType={}",
                     eventType, record.topic(), record.partition(), record.offset(),
                     rootCauseName(exception));

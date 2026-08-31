@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record MarketplaceCacheProperties(
     boolean enabled,
     Duration auctionTtl,
-    Duration listingTtl
+    Duration listingTtl,
+    Duration operationTimeout
 ) {
 }

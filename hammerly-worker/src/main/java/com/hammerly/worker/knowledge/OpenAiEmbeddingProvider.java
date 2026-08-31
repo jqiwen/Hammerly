@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -17,7 +18,11 @@ public class OpenAiEmbeddingProvider implements EmbeddingProvider {
 
     public OpenAiEmbeddingProvider(KnowledgeWorkerProperties properties) {
         this.properties = properties;
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(properties.requestTimeout());
+        requestFactory.setReadTimeout(properties.requestTimeout());
         this.client = RestClient.builder().baseUrl(properties.openaiBaseUrl())
+            .requestFactory(requestFactory)
             .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + properties.openaiApiKey())
             .build();
         if (!StringUtils.hasText(properties.openaiApiKey())) {

@@ -31,8 +31,8 @@ spring:
       password: ${REDIS_PASSWORD:}
       ssl:
         enabled: ${REDIS_SSL:false}
-      connect-timeout: ${REDIS_CONNECT_TIMEOUT:1s}
-      timeout: ${REDIS_COMMAND_TIMEOUT:1s}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:250ms}
+      timeout: ${REDIS_COMMAND_TIMEOUT:250ms}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -75,6 +75,7 @@ hammerly:
     enabled: ${HAMMERLY_MARKETPLACE_CACHE_ENABLED:true}
     auction-ttl: ${HAMMERLY_MARKETPLACE_AUCTION_CACHE_TTL:60s}
     listing-ttl: ${HAMMERLY_MARKETPLACE_LIST_CACHE_TTL:30s}
+    operation-timeout: ${HAMMERLY_MARKETPLACE_CACHE_OPERATION_TIMEOUT:500ms}
   kafka:
     enabled: ${HAMMERLY_KAFKA_ENABLED:true}
     jobs-topic: ${HAMMERLY_KAFKA_AI_JOBS_TOPIC:hammerly.ai.jobs.v1}

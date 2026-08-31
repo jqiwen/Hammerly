@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.List;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Component
 @EnableConfigurationProperties(KnowledgeWorkerProperties.class)
@@ -12,6 +13,7 @@ public class DocumentChunker {
     private final int chunkTokens;
     private final int overlapTokens;
 
+    @Autowired
     public DocumentChunker(KnowledgeWorkerProperties properties) {
         this(properties.chunkTokens(), properties.chunkOverlapTokens());
     }

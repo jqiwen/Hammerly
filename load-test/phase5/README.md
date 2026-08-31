@@ -31,6 +31,7 @@ Client metrics include:
 
 - `hammerly_sse_connection_latency`
 - `hammerly_sse_first_event_latency`
+- `hammerly_sse_metadata_events` when `EXPECT_RAG_SOURCES=true`
 - `hammerly_sse_stream_duration`, tagged with `outcome`
 - successful/failed/total streams per hold stage
 - controlled overload, transport, HTTP-status, missing-first-event, incomplete, and SSE-error counts

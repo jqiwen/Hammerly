@@ -17,7 +17,8 @@ public record LlmResilienceProperties(
         int maxAttempts,
         Duration initialBackoff,
         double multiplier,
-        double jitter
+        double jitter,
+        Duration maxRetryAfter
     ) {
     }
 

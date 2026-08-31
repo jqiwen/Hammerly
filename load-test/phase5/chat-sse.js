@@ -2,7 +2,7 @@ import { check, sleep } from 'k6';
 import exec from 'k6/execution';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import sse from 'k6/x/sse';
-import { assertLoadTestSafety, endpoint, mode, requestHeaders } from './config.js';
+import { assertLoadTestSafety, endpoint, mode, providerMode, requestHeaders } from './config.js';
 import { concurrencyAt, fullStages, parseDuration, smokeStages } from './stages.js';
 
 const connectionLatency = new Trend('hammerly_sse_connection_latency', true);
@@ -18,6 +18,8 @@ const errorEvents = new Counter('hammerly_sse_error_events');
 const httpStatusErrors = new Counter('hammerly_sse_http_status_errors');
 const missingFirstEvents = new Counter('hammerly_sse_missing_first_event');
 const incompleteStreams = new Counter('hammerly_sse_incomplete_streams');
+const metadataEvents = new Counter('hammerly_sse_metadata_events');
+const expectRagSources = (__ENV.EXPECT_RAG_SOURCES || '').toLowerCase() === 'true';
 
 assertLoadTestSafety();
 
@@ -32,7 +34,9 @@ export const options = {
   },
   thresholds: {
     hammerly_sse_stream_failure_rate: ['rate<0.20'],
-    hammerly_sse_first_event_latency: ['p(95)<5000'],
+    hammerly_sse_first_event_latency: providerMode === 'loadtest'
+      ? ['p(95)<500'] : ['p(95)<5000'],
+    ...(expectRagSources ? { hammerly_sse_metadata_events: ['count>0'] } : {}),
     ...(mode === 'full' ? {
     'hammerly_sse_stream_failure_rate{concurrency:100}': ['rate<1.0'],
     'hammerly_sse_stream_failure_rate{concurrency:500}': ['rate<1.0'],
@@ -99,6 +103,7 @@ export default function () {
   let firstChunkAt = 0;
   let completed = false;
   let failed = false;
+  let sourceMetadata = false;
   const body = JSON.stringify({
     message: 'How do I place a safe bid on Hammerly?',
     conversationId: conversationId(),
@@ -116,7 +121,17 @@ export default function () {
       connectionLatency.add(openedAt - startedAt, metricTags);
     });
     client.on('event', (event) => {
-      if (event.name === 'chunk' && firstChunkAt === 0) {
+      if (event.name === 'metadata') {
+        try {
+          const metadata = JSON.parse(event.data || '{}');
+          if (Array.isArray(metadata.sources) && metadata.sources.length > 0) {
+            sourceMetadata = true;
+            metadataEvents.add(1, metricTags);
+          }
+        } catch (_) {
+          // Malformed metadata is ignored just as it is in the browser client.
+        }
+      } else if (event.name === 'chunk' && firstChunkAt === 0) {
         firstChunkAt = Date.now();
         firstEventLatency.add(firstChunkAt - startedAt, metricTags);
       } else if (event.name === 'done') {
@@ -155,6 +170,7 @@ export default function () {
     'SSE status is 200': (result) => result && result.status === 200,
     'stream emitted first chunk': () => firstChunkAt > 0,
     'stream completed': () => completed && !failed,
+    ...(expectRagSources ? { 'stream emitted source metadata': () => sourceMetadata } : {}),
   });
   const success = ok && completed && firstChunkAt > 0 && !failed;
   streamDuration.add(elapsed, { ...metricTags, outcome: success ? 'success' : 'failure' });

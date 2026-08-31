@@ -8,9 +8,8 @@ hammerly-ai      :5001 ─┼─ /actuator/prometheus ─> Prometheus :9090 ─>
 hammerly-worker  :5002 ─┘
 ```
 
-The applications run on the host during this phase. Prometheus and Grafana run in Docker. The
-Prometheus targets therefore use `host.docker.internal`; Compose adds the Linux `host-gateway`
-mapping as well. The worker has no application HTTP connector. Port 5002 is its separate,
+The unified local stack runs the applications, Prometheus, and Grafana in Docker; Prometheus scrapes
+the service names on the Compose network. The worker has no application HTTP connector. Port 5002 is its separate,
 management-only Actuator connector, while its application remains a Kafka consumer.
 
 Prometheus scrapes every five seconds. Grafana automatically provisions the Prometheus datasource
@@ -44,11 +43,11 @@ exported in seconds. The important actual Prometheus names are:
 | `redis_cache_misses_total` | Real response-cache misses, including failed reads treated as misses | none |
 | `active_conversations` | In-flight AI requests on this AI instance | none |
 | `kafka_processing_duration_seconds_bucket` / `_count` / `_sum` / `_max` | Worker listener receipt through processing completion | bounded `event_type`, `outcome=success|error` |
-| `rag_search_duration_seconds_bucket` / `_count` / `_sum` / `_max` | Reserved real RAG search timer | none |
-
-`rag_search_duration_seconds_*` is registered only when future RAG code calls the prepared
-instrumentation boundary. Phase 6 makes no such call and creates no fake observations, so the RAG
-panel correctly shows **No data**.
+| `rag_search_duration_seconds_bucket` / `_count` / `_sum` / `_max` | Real pgvector retrieval latency | none |
+| `rag_embedding_duration_seconds_bucket` / `_count` / `_sum` / `_max` | Query-embedding latency | none |
+| `rag_search_results_count` / `_sum` | Retrieved result-count distribution | none |
+| `rag_cache_hits_total` / `rag_cache_misses_total` | Versioned retrieval-cache outcomes | none |
+| `marketplace_cache_hits_total` / `marketplace_cache_misses_total` | Core marketplace cache outcomes | none |
 
 Existing Phase 5 and Resilience4j metrics remain available, including:
 
@@ -71,8 +70,8 @@ as `unknown`.
 
 ## Histograms and important PromQL
 
-The AI request, first-token, and Kafka processing timers publish histogram buckets. RAG will do the
-same once a real observation exists.
+The AI request, provider first-token/full-response, RAG embedding/search, marketplace cache, and
+Kafka processing timers publish real observations when their paths execute.
 
 ```promql
 # AI P95
@@ -117,7 +116,7 @@ The provisioned dashboard contains these sections:
 - Redis: calculated cache hit rate, hits/sec, and misses/sec
 - Kafka Worker: processing rate and P50/P95/P99, errors, retries, DLT, and available client lag
 - JVM: heap, process CPU, live threads, and GC pause
-- RAG: future search duration, with No data expected in Phase 6
+- RAG: embedding/search latency, result count, and retrieval-cache hit rate
 - Kubernetes / Autoscaling: Phase 8 AI current/desired replicas, CPU target,
   pod CPU/memory, restarts, and readiness (No data in the local Compose stack)
 
@@ -134,9 +133,8 @@ docker compose up -d --build
 docker compose ps
 ```
 
-The root `.env.example` intentionally defaults both flags to `false` for demo-off safety. Phase 6
-Redis and worker/Kafka panels require the explicit `true` overrides above; the metric names and full
-Redis/Kafka implementations are unchanged.
+The root `.env.example` enables both flags for the self-contained local stack. Production profiles
+and deployment workflows default them to `false` for demo-off safety.
 
 Stop the stack without deleting retained data:
 
@@ -167,7 +165,7 @@ provisioning, and rendered Grafana panels. It did not rerun or modify the Phase 
 
 Known limitations:
 
-- RAG is not implemented, so its panel has no data by design.
+- Deterministic local embeddings validate retrieval mechanics but are not a substitute for semantic answer-quality evaluation.
 - Production Prometheus/Grafana hosting and a private scrape network are intentionally not part of this phase.
 - Worker consumer lag uses the Kafka client metric already exported by Micrometer; no separate Kafka exporter was added.
 - Kafka retry/DLT and resilience rejection panels remain zero until those real events occur.

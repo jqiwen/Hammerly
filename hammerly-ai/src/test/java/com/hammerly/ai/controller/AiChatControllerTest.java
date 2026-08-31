@@ -23,6 +23,8 @@ import com.hammerly.ai.ratelimit.RateLimitDecision;
 import com.hammerly.ai.service.AiChatResult;
 import com.hammerly.ai.service.AiChatService;
 import com.hammerly.ai.service.AiStreamResult;
+import com.hammerly.ai.rag.RagSource;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -161,6 +163,27 @@ class AiChatControllerTest {
             .andExpect(status().isOk())
             .andExpect(content().string(org.hamcrest.Matchers.containsString("Cached answer")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:done")));
+    }
+
+    @Test
+    void streamingEndpointEmitsRealSourceMetadataBeforeChunks() throws Exception {
+        when(aiChatService.stream(anyString(), any(), anyBoolean()))
+            .thenReturn(new AiStreamResult(Flux.just("Bid now."), ALLOWED,
+                List.of(new RagSource("Hammerly Support Guide", "Bidding", "chunk-1"))));
+
+        MvcResult started = mvc.perform(post("/internal/ai/chat/stream")
+                .header(InternalAiHeaders.USER_ID, "42")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .content("{\"message\":\"How do I bid?\",\"history\":[]}"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        mvc.perform(asyncDispatch(started))
+            .andExpect(status().isOk())
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("event:metadata")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("Hammerly Support Guide")))
+            .andExpect(content().string(org.hamcrest.Matchers.containsString("event:chunk")));
     }
 
     @Test

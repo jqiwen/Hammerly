@@ -56,8 +56,11 @@ public class LlmResilienceConfiguration {
                 long configuredBackoff = interval.apply(attempt);
                 if (resultOrFailure.isLeft()
                         && resultOrFailure.getLeft() instanceof ProviderCallFailureException failure) {
-                    return Math.max(configuredBackoff,
-                        failure.retryAfter().map(Duration::toMillis).orElse(0L));
+                    long providerDelay = failure.retryAfter()
+                        .map(delay -> delay.compareTo(settings.maxRetryAfter()) > 0
+                            ? settings.maxRetryAfter() : delay)
+                        .map(Duration::toMillis).orElse(0L);
+                    return Math.max(configuredBackoff, providerDelay);
                 }
                 return configuredBackoff;
             })

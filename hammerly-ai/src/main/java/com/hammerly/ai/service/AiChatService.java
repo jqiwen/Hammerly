@@ -2,6 +2,8 @@ package com.hammerly.ai.service;
 
 import com.hammerly.ai.cache.AiCacheKeyFactory;
 import com.hammerly.ai.cache.AiResponseCache;
+import com.hammerly.ai.context.AiContextBuilder;
+import com.hammerly.ai.context.BuiltAiContext;
 import com.hammerly.ai.conversation.ConversationHistory;
 import com.hammerly.ai.conversation.ConversationAppendResult;
 import com.hammerly.ai.conversation.ConversationMessage;
@@ -27,6 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.SignalType;
@@ -43,11 +46,14 @@ public class AiChatService {
     private final AiMetrics metrics;
     private final AiEventPublisher eventPublisher;
     private final Clock clock;
+    private final AiContextBuilder contextBuilder;
 
+    @Autowired
     public AiChatService(AiModelClient modelClient, ConversationStore conversationStore,
                          AiResponseCache responseCache, AiCacheKeyFactory cacheKeyFactory,
                          AiRateLimiter rateLimiter, AiMetrics metrics,
-                         AiEventPublisher eventPublisher, Clock clock) {
+                         AiEventPublisher eventPublisher, Clock clock,
+                         AiContextBuilder contextBuilder) {
         this.modelClient = modelClient;
         this.conversationStore = conversationStore;
         this.responseCache = responseCache;
@@ -56,6 +62,15 @@ public class AiChatService {
         this.metrics = metrics;
         this.eventPublisher = eventPublisher;
         this.clock = clock;
+        this.contextBuilder = contextBuilder;
+    }
+
+    public AiChatService(AiModelClient modelClient, ConversationStore conversationStore,
+                         AiResponseCache responseCache, AiCacheKeyFactory cacheKeyFactory,
+                         AiRateLimiter rateLimiter, AiMetrics metrics,
+                         AiEventPublisher eventPublisher, Clock clock) {
+        this(modelClient, conversationStore, responseCache, cacheKeyFactory, rateLimiter,
+            metrics, eventPublisher, clock, AiContextBuilder.basic());
     }
 
     public AiChatResult chat(String userId, ChatRequest request) {
@@ -72,13 +87,13 @@ public class AiChatService {
                     .ifPresent(this::publishEventsSafely);
                 metrics.requestCompleted("success", startedAt);
                 log.info("AI chat cache hit user={} conversation={}", userId, request.conversationId());
-                return new AiChatResult(answer, rateLimit);
+                return new AiChatResult(answer, rateLimit, prepared.sources());
             }
 
             log.info("AI chat cache miss user={} conversation={} contextMessages={}",
                 userId, request.conversationId(), prepared.context().size());
             try {
-                String answer = modelClient.chat(prepared.context(), request.message());
+                String answer = modelClient.chat(prepared.context(), prepared.modelQuestion());
                 if (!StringUtils.hasText(answer)) {
                     throw new AiProviderUnavailableException("AI provider returned an empty response.");
                 }
@@ -87,7 +102,7 @@ public class AiChatService {
                     .ifPresent(this::publishEventsSafely);
                 metrics.requestCompleted("success", startedAt);
                 log.info("AI chat completed durationMs={}", elapsedMillis(startedAt));
-                return new AiChatResult(answer, rateLimit);
+                return new AiChatResult(answer, rateLimit, prepared.sources());
             } catch (RuntimeException exception) {
                 log.warn("AI chat request failed durationMs={} errorType={}",
                     elapsedMillis(startedAt), rootCauseName(exception));
@@ -127,7 +142,7 @@ public class AiChatService {
                             Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
                         }
                     });
-                return new AiStreamResult(cachedStream, rateLimit);
+                return new AiStreamResult(cachedStream, rateLimit, prepared.sources());
             }
 
             log.info("AI stream cache miss user={} conversation={} contextMessages={}",
@@ -136,7 +151,7 @@ public class AiChatService {
             AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
             final Flux<String> chunks;
             try {
-                chunks = modelClient.stream(prepared.context(), request.message());
+                chunks = modelClient.stream(prepared.context(), prepared.modelQuestion());
             } catch (RuntimeException exception) {
                 throw exception instanceof AiProviderUnavailableException
                     ? exception
@@ -167,7 +182,7 @@ public class AiChatService {
                 .onErrorMap(exception -> exception instanceof AiProviderUnavailableException
                     ? exception
                     : new AiProviderUnavailableException("AI provider stream was interrupted.", exception));
-            return new AiStreamResult(observed, rateLimit);
+            return new AiStreamResult(observed, rateLimit, prepared.sources());
         } catch (RuntimeException exception) {
             metrics.requestCompleted("error", startedAt);
             metrics.aiRequestFinished();
@@ -206,10 +221,13 @@ public class AiChatService {
             }
         }
 
+        BuiltAiContext built = contextBuilder.build(userId, request.conversationId(),
+            context, request.message());
         String cacheKey = cacheKeyFactory.create(userId, request.conversationId(),
-            request.message(), context);
-        Optional<String> retryCacheKey = retryCacheKey(userId, request, context);
-        return new PreparedRequest(context, snapshot, cacheKey, retryCacheKey);
+            built.modelQuestion(), built.messages());
+        Optional<String> retryCacheKey = retryCacheKey(userId, request, built.messages());
+        return new PreparedRequest(built.messages(), snapshot, cacheKey, retryCacheKey,
+            built.modelQuestion(), built.sources());
     }
 
     private Optional<String> findCached(PreparedRequest prepared) {
@@ -302,6 +320,8 @@ public class AiChatService {
     private record PreparedRequest(List<ChatMessage> context,
                                    List<ConversationMessage> conversationSnapshot,
                                    String cacheKey,
-                                   Optional<String> retryCacheKey) {
+                                   Optional<String> retryCacheKey,
+                                   String modelQuestion,
+                                   List<com.hammerly.ai.rag.RagSource> sources) {
     }
 }

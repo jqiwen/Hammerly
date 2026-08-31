@@ -13,6 +13,7 @@ import com.hammerly.worker.idempotency.IdempotencyStore;
 import com.hammerly.worker.idempotency.ProcessingClaim;
 import com.hammerly.worker.observability.WorkerMetrics;
 import com.hammerly.worker.summary.ConversationSummaryHandler;
+import com.hammerly.worker.embedding.EmbeddingJobHandler;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +23,7 @@ class EventProcessorTest {
     private static final UUID EVENT_ID = UUID.fromString("b29bd72b-a2d5-4938-90f0-151867ac4c7a");
     private IdempotencyStore idempotency;
     private ConversationSummaryHandler summaryHandler;
+    private EmbeddingJobHandler embeddingHandler;
     private SimpleMeterRegistry registry;
     private EventProcessor processor;
 
@@ -29,9 +31,10 @@ class EventProcessorTest {
     void setUp() {
         idempotency = mock(IdempotencyStore.class);
         summaryHandler = mock(ConversationSummaryHandler.class);
+        embeddingHandler = mock(EmbeddingJobHandler.class);
         registry = new SimpleMeterRegistry();
         processor = new EventProcessor(new ObjectMapper().findAndRegisterModules(), idempotency,
-            summaryHandler, new WorkerMetrics(registry));
+            summaryHandler, new WorkerMetrics(registry), embeddingHandler);
     }
 
     @Test

@@ -75,6 +75,10 @@ public class DatabaseInitializer implements ApplicationRunner {
 
     @Transactional
     public void clearAllDataAndReseed() {
+        jdbc.update("DELETE FROM outbox_events");
+        jdbc.update("DELETE FROM knowledge_chunks");
+        jdbc.update("DELETE FROM knowledge_documents");
+        jdbc.update("UPDATE knowledge_base_state SET version = 0, updated_at = now() WHERE id = 1");
         jdbc.update("DELETE FROM watchlist");
         jdbc.update("DELETE FROM payment_methods");
         jdbc.update("DELETE FROM bids");

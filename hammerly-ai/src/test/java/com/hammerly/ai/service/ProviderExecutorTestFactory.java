@@ -85,7 +85,8 @@ final class ProviderExecutorTestFactory {
             Duration.ofSeconds(5),
             firstTokenTimeout,
             Duration.ofSeconds(30),
-            new LlmResilienceProperties.Retry(3, Duration.ofMillis(300), 8.0 / 3.0, 0.0),
+            new LlmResilienceProperties.Retry(3, Duration.ofMillis(300), 8.0 / 3.0, 0.0,
+                Duration.ofSeconds(2)),
             new LlmResilienceProperties.CircuitBreaker(
                 circuitWindow, circuitMinimum, 50.0f, 100.0f,
                 Duration.ofSeconds(20), circuitWait, 2),
@@ -97,7 +98,8 @@ final class ProviderExecutorTestFactory {
         return new LlmResilienceProperties(source.connectTimeout(), source.requestTimeout(),
             source.firstTokenTimeout(), source.idleTimeout(),
             new LlmResilienceProperties.Retry(maxAttempts,
-                source.retry().initialBackoff(), source.retry().multiplier(), 0.0),
+                source.retry().initialBackoff(), source.retry().multiplier(), 0.0,
+                source.retry().maxRetryAfter()),
             source.circuitBreaker(), source.bulkhead());
     }
 }

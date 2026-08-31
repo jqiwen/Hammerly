@@ -75,6 +75,10 @@ jobs:
           changed '^hammerly-backend/' && core=true
           changed '^hammerly-ai/' && ai=true
           changed '^hammerly-worker/' && worker=true
+          if changed '^docs/(knowledge-base|rag)/'; then
+            ai=true
+            worker=true
+          fi
           changed '^(load-test/phase5/|scripts/load-test/|\.github/workflows/phase5-load-test\.yml$)' && ai=true
           changed '^\.github/workflows/deploy-frontend\.yml$' && ui=true
           changed '^\.github/workflows/deploy-core\.yml$' && core=true
@@ -178,6 +182,8 @@ jobs:
       OPENAI_API_KEY: ""
       HAMMERLY_REDIS_ENABLED: "false"
       HAMMERLY_KAFKA_ENABLED: "false"
+      HAMMERLY_RAG_ENABLED: "false"
+      HAMMERLY_AI_EMBEDDING_PROVIDER: deterministic
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -207,6 +213,9 @@ jobs:
     defaults:
       run:
         working-directory: hammerly-worker
+    env:
+      HAMMERLY_AI_EMBEDDING_PROVIDER: deterministic
+      OPENAI_API_KEY: ""
     steps:
       - name: Check out repository
         uses: actions/checkout@v7

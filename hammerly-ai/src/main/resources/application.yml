@@ -17,8 +17,8 @@ spring:
       password: ${REDIS_PASSWORD:}
       ssl:
         enabled: ${REDIS_SSL:false}
-      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
-      timeout: ${REDIS_COMMAND_TIMEOUT:2s}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:250ms}
+      timeout: ${REDIS_COMMAND_TIMEOUT:250ms}
   ai:
     model:
       embedding: none
@@ -34,7 +34,8 @@ spring:
       chat:
         options:
           model: ${OPENAI_MODEL:gpt-5-mini}
-          max-completion-tokens: ${OPENAI_MAX_OUTPUT_TOKENS:600}
+          max-completion-tokens: ${OPENAI_MAX_OUTPUT_TOKENS:250}
+          reasoning-effort: ${OPENAI_REASONING_EFFORT:low}
           store: false
           internal-tool-execution-enabled: false
   kafka:
@@ -61,6 +62,7 @@ hammerly:
     summary-request-marker-ttl: ${HAMMERLY_AI_SUMMARY_REQUEST_MARKER_TTL:7d}
   ai:
     internal-token: ${HAMMERLY_AI_INTERNAL_TOKEN:}
+    internal-token-required: ${HAMMERLY_AI_INTERNAL_TOKEN_REQUIRED:false}
     system-prompt: classpath:prompts/hammerly-support-system.txt
     stream-max-concurrent: ${HAMMERLY_AI_STREAM_MAX_CONCURRENT:1100}
     stream-timeout: ${HAMMERLY_AI_STREAM_TIMEOUT:5m}
@@ -73,16 +75,35 @@ hammerly:
       rate-limit:
         requests: ${HAMMERLY_AI_RATE_LIMIT_REQUESTS:20}
         window: ${HAMMERLY_AI_RATE_LIMIT_WINDOW_SECONDS:60}s
+    context:
+      recent-turns: ${HAMMERLY_AI_CONTEXT_RECENT_TURNS:6}
+      max-chars: ${HAMMERLY_AI_CONTEXT_MAX_CHARS:16000}
+    rag:
+      enabled: ${HAMMERLY_RAG_ENABLED:false}
+      top-k: ${HAMMERLY_RAG_TOP_K:4}
+      similarity-threshold: ${HAMMERLY_RAG_SIMILARITY_THRESHOLD:0.25}
+      cache-ttl: ${HAMMERLY_RAG_CACHE_TTL:5m}
+      timeout: ${HAMMERLY_RAG_TIMEOUT:2s}
+      embedding-provider: ${HAMMERLY_AI_EMBEDDING_PROVIDER:deterministic}
+      embedding-model: ${HAMMERLY_AI_EMBEDDING_MODEL:text-embedding-3-small}
+      embedding-dimension: ${HAMMERLY_RAG_EMBEDDING_DIMENSION:1536}
+      openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      openai-api-key: ${OPENAI_API_KEY:}
+      datasource-url: ${SUPABASE_DB_URL:}
+      datasource-username: ${SUPABASE_DB_USERNAME:}
+      datasource-password: ${SUPABASE_DB_PASSWORD:}
+      datasource-ssl-mode: ${HAMMERLY_DB_SSL_MODE:require}
     llm:
       connect-timeout: ${HAMMERLY_AI_LLM_CONNECT_TIMEOUT:3s}
-      request-timeout: ${HAMMERLY_AI_LLM_REQUEST_TIMEOUT:30s}
-      first-token-timeout: ${HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT:12s}
-      idle-timeout: ${HAMMERLY_AI_LLM_IDLE_TIMEOUT:15s}
+      request-timeout: ${HAMMERLY_AI_LLM_REQUEST_TIMEOUT:20s}
+      first-token-timeout: ${HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT:8s}
+      idle-timeout: ${HAMMERLY_AI_LLM_IDLE_TIMEOUT:10s}
       retry:
-        max-attempts: ${HAMMERLY_AI_LLM_MAX_ATTEMPTS:3}
+        max-attempts: ${HAMMERLY_AI_LLM_MAX_ATTEMPTS:2}
         initial-backoff: ${HAMMERLY_AI_LLM_RETRY_INITIAL_BACKOFF:250ms}
         multiplier: ${HAMMERLY_AI_LLM_RETRY_MULTIPLIER:2.0}
         jitter: ${HAMMERLY_AI_LLM_RETRY_JITTER:0.25}
+        max-retry-after: ${HAMMERLY_AI_LLM_MAX_RETRY_AFTER:2s}
       circuit-breaker:
         sliding-window-size: ${HAMMERLY_AI_LLM_CB_WINDOW_SIZE:20}
         minimum-calls: ${HAMMERLY_AI_LLM_CB_MINIMUM_CALLS:10}
@@ -117,5 +138,9 @@ management:
     distribution:
       percentiles-histogram:
         ai.request.duration: true
+        ai.end.to.end.duration: true
+        ai.provider.first.token: true
+        ai.provider.full.response: true
+        rag.embedding.duration: true
         hammerly.ai.provider.first_token.latency: true
         rag.search.duration: true

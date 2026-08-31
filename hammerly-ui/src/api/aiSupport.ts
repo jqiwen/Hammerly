@@ -12,6 +12,12 @@ export type AiSupportHistoryMessage = {
   content: string;
 };
 
+export type AiSupportSource = {
+  title: string;
+  source: string;
+  chunkId?: string;
+};
+
 export class AiSupportUnavailableError extends Error {
   constructor() {
     super(AI_SUPPORT_UNAVAILABLE_MESSAGE);
@@ -41,6 +47,7 @@ type StreamAiSupportOptions = {
   history: AiSupportHistoryMessage[];
   conversationId: string;
   onChunk: (chunk: string) => void;
+  onSources?: (sources: AiSupportSource[]) => void;
   signal?: AbortSignal;
 };
 
@@ -68,11 +75,31 @@ const readEventContent = (data: string) => {
   }
 };
 
+const readEventSources = (data: string): AiSupportSource[] => {
+  try {
+    const payload = JSON.parse(data) as { sources?: unknown };
+    if (!Array.isArray(payload.sources)) return [];
+    return payload.sources.flatMap((source) => {
+      if (!source || typeof source !== 'object') return [];
+      const value = source as Record<string, unknown>;
+      if (typeof value.title !== 'string' || typeof value.source !== 'string') return [];
+      return [{
+        title: value.title,
+        source: value.source,
+        ...(typeof value.chunkId === 'string' ? { chunkId: value.chunkId } : {}),
+      }];
+    });
+  } catch {
+    return [];
+  }
+};
+
 export const streamAiSupport = async ({
   question,
   history,
   conversationId,
   onChunk,
+  onSources,
   signal,
 }: StreamAiSupportOptions): Promise<void> => {
   const trimmedQuestion = question.trim();
@@ -127,6 +154,9 @@ export const streamAiSupport = async ({
         if (parsed.event === 'chunk') {
           const content = readEventContent(parsed.data);
           if (content) onChunk(content);
+        } else if (parsed.event === 'metadata') {
+          const sources = readEventSources(parsed.data);
+          if (sources.length) onSources?.(sources);
         } else if (parsed.event === 'done') {
           completed = true;
           break;

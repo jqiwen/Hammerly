@@ -44,7 +44,7 @@ public class AiChatController {
         AiChatResult result = aiChatService.chat(validateUserId(userId), request);
         return ResponseEntity.ok()
             .headers(rateLimitHeaders(result.rateLimit()))
-            .body(new ChatResponse(result.answer()));
+            .body(new ChatResponse(result.answer(), result.sources()));
     }
 
     @PostMapping(value = "/chat/stream", consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -65,11 +65,15 @@ public class AiChatController {
             return ResponseEntity.ok(Flux.just(unavailableEvent(exception)));
         }
 
-        Flux<ServerSentEvent<ChatStreamEvent>> events = result.chunks()
+        Flux<ServerSentEvent<ChatStreamEvent>> metadata = result.sources().isEmpty()
+            ? Flux.empty()
+            : Flux.just(ServerSentEvent.builder(ChatStreamEvent.metadata(result.sources()))
+                .event("metadata").build());
+        Flux<ServerSentEvent<ChatStreamEvent>> events = metadata.concatWith(result.chunks()
             .map(chunk -> ServerSentEvent.builder(new ChatStreamEvent(chunk))
                 .event("chunk").build())
             .concatWithValues(ServerSentEvent.builder(new ChatStreamEvent(""))
-                .event("done").build())
+                .event("done").build()))
             .onErrorResume(exception -> {
                 log.warn("AI stream returned a safe error event ({})",
                     exception.getClass().getSimpleName());

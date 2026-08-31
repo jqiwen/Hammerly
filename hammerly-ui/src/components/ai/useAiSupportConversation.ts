@@ -5,6 +5,7 @@ import {
   AI_SUPPORT_UNAVAILABLE_MESSAGE,
   streamAiSupport,
   type AiSupportHistoryMessage,
+  type AiSupportSource,
 } from '@/api/aiSupport';
 
 export type AiChatMessage = {
@@ -13,6 +14,7 @@ export type AiChatMessage = {
   content: string;
   isError?: boolean;
   isLocal?: boolean;
+  sources?: AiSupportSource[];
 };
 
 let messageSequence = 0;
@@ -103,6 +105,11 @@ export function useAiSupportConversation(initialMessages: AiChatMessage[] = []) 
           message.id === assistantMessage.id
             ? { ...message, content: message.content + chunk }
             : message));
+      },
+      onSources: (sources) => {
+        if (!mounted.current) return;
+        setMessages((current) => current.map((message) =>
+          message.id === assistantMessage.id ? { ...message, sources } : message));
       },
     }).catch((error: unknown) => {
       if (!mounted.current || error instanceof DOMException && error.name === 'AbortError') return;

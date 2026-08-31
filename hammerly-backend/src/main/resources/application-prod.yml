@@ -1,5 +1,9 @@
 hammerly:
   internal-token-required: true
+  marketplace-cache:
+    enabled: ${HAMMERLY_MARKETPLACE_CACHE_ENABLED:false}
+  kafka:
+    enabled: ${HAMMERLY_KAFKA_ENABLED:false}
   ai:
     diagnostic-enabled: false
   database:

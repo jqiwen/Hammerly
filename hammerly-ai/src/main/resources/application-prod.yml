@@ -19,6 +19,8 @@ hammerly:
     enabled: ${HAMMERLY_REDIS_ENABLED:false}
   kafka:
     enabled: ${HAMMERLY_KAFKA_ENABLED:false}
+  ai:
+    internal-token-required: true
 
 # The application listener is public in the current Cloud Run topology. Keep
 # metrics off it by default; a future private collector path must opt in.

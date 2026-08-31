@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -19,16 +20,28 @@ public class InternalAiTokenFilter extends OncePerRequestFilter {
     private static final String INTERNAL_PATH_PREFIX = "/internal/";
 
     private final byte[] expectedToken;
+    private final boolean required;
 
-    public InternalAiTokenFilter(@Value("${hammerly.ai.internal-token:}") String expectedToken) {
+    @Autowired
+    public InternalAiTokenFilter(@Value("${hammerly.ai.internal-token:}") String expectedToken,
+                                 @Value("${hammerly.ai.internal-token-required:false}") boolean required) {
         this.expectedToken = StringUtils.hasText(expectedToken)
             ? expectedToken.getBytes(StandardCharsets.UTF_8)
             : new byte[0];
+        this.required = required;
+        if (required && this.expectedToken.length == 0) {
+            throw new IllegalStateException("HAMMERLY_AI_INTERNAL_TOKEN is required in production");
+        }
+    }
+
+    InternalAiTokenFilter(String expectedToken) {
+        this(expectedToken, false);
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return expectedToken.length == 0 || !request.getRequestURI().startsWith(INTERNAL_PATH_PREFIX);
+        return (!required && expectedToken.length == 0)
+            || !request.getRequestURI().startsWith(INTERNAL_PATH_PREFIX);
     }
 
     @Override

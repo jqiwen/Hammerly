@@ -34,7 +34,10 @@ jobs:
           CORE_RUNTIME_SERVICE_ACCOUNT: ${{ vars.CORE_RUNTIME_SERVICE_ACCOUNT }}
           CORE_DB_SECRET: ${{ vars.CORE_DB_SECRET }}
           CORE_JWT_SECRET: ${{ vars.CORE_JWT_SECRET }}
+          CORE_REDIS_PASSWORD_SECRET: ${{ vars.CORE_REDIS_PASSWORD_SECRET }}
           AI_INTERNAL_TOKEN_SECRET: ${{ vars.AI_INTERNAL_TOKEN_SECRET }}
+          AI_VPC_NETWORK: ${{ vars.AI_VPC_NETWORK }}
+          AI_VPC_SUBNET: ${{ vars.AI_VPC_SUBNET }}
           HAMMERLY_FRONTEND_URL: ${{ vars.HAMMERLY_FRONTEND_URL }}
           HAMMERLY_AI_URL: ${{ vars.HAMMERLY_AI_URL }}
         run: |
@@ -50,7 +53,8 @@ jobs:
             GCP_PROJECT_ID GCP_REGION GCP_WORKLOAD_IDENTITY_PROVIDER \
             GCP_DEPLOY_SERVICE_ACCOUNT GCP_ARTIFACT_REPOSITORY \
             CORE_CLOUD_RUN_SERVICE CORE_RUNTIME_SERVICE_ACCOUNT \
-            CORE_DB_SECRET CORE_JWT_SECRET AI_INTERNAL_TOKEN_SECRET \
+            CORE_DB_SECRET CORE_JWT_SECRET CORE_REDIS_PASSWORD_SECRET AI_INTERNAL_TOKEN_SECRET \
+            AI_VPC_NETWORK AI_VPC_SUBNET \
             HAMMERLY_FRONTEND_URL HAMMERLY_AI_URL; do
             if [[ -z "${!variable_name:-}" ]]; then
               echo "::error::Missing required GitHub variable: ${variable_name}"
@@ -80,7 +84,15 @@ jobs:
       runtime-service-account: ${{ vars.CORE_RUNTIME_SERVICE_ACCOUNT }}
       port: 5000
       health-path: /health
-      deploy-flags: --allow-unauthenticated --memory=1Gi --cpu=1 --min-instances=0 --max-instances=5
+      deploy-flags: >-
+        --allow-unauthenticated
+        --memory=1Gi
+        --cpu=1
+        --min-instances=0
+        --max-instances=5
+        --network=${{ vars.AI_VPC_NETWORK }}
+        --subnet=${{ vars.AI_VPC_SUBNET }}
+        --vpc-egress=private-ranges-only
       environment-variables: |-
         SPRING_PROFILES_ACTIVE=prod
         FRONTEND_URL=${{ vars.HAMMERLY_FRONTEND_URL }}
@@ -88,8 +100,15 @@ jobs:
         HAMMERLY_SEED_ENABLED=false
         HAMMERLY_DEBUG_ENDPOINT_ENABLED=false
         HAMMERLY_AI_DIAGNOSTIC_ENABLED=false
+        HAMMERLY_MARKETPLACE_CACHE_ENABLED=${{ vars.HAMMERLY_MARKETPLACE_CACHE_ENABLED || 'false' }}
+        HAMMERLY_KAFKA_ENABLED=${{ vars.HAMMERLY_KAFKA_ENABLED || 'false' }}
+        REDIS_HOST=${{ vars.AI_REDIS_HOST || 'redis-not-configured.invalid' }}
+        REDIS_PORT=${{ vars.AI_REDIS_PORT || '6379' }}
+        REDIS_SSL=${{ vars.AI_REDIS_SSL || 'true' }}
+        KAFKA_BOOTSTRAP_SERVERS=${{ vars.KAFKA_BOOTSTRAP_SERVERS || 'kafka-not-configured.invalid:9092' }}
         HAMMERLY_COMMIT_SHA=${{ github.sha }}
       secret-bindings: |-
         SUPABASE_DB_URL=${{ vars.CORE_DB_SECRET }}:latest
         JWT_SECRET=${{ vars.CORE_JWT_SECRET }}:latest
+        REDIS_PASSWORD=${{ vars.CORE_REDIS_PASSWORD_SECRET }}:latest
         HAMMERLY_AI_INTERNAL_TOKEN=${{ vars.AI_INTERNAL_TOKEN_SECRET }}:latest
