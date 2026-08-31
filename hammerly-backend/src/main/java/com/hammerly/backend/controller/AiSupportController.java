@@ -58,11 +58,12 @@ public class AiSupportController {
     ResponseEntity<StreamingResponseBody> stream(
             @Valid @RequestBody AiChatRequest request,
             @AuthenticationPrincipal AuthenticatedUser user) {
+        long requestReceivedAt = System.nanoTime();
         String userId = trustedUserId(user, request.conversationId());
         AiRateLimitStatus rateLimit = aiPlatformClient.acquireStreamPermit(userId);
         StreamingResponseBody body = output -> {
             try {
-                aiPlatformClient.stream(request, userId, output);
+                aiPlatformClient.stream(request, userId, output, requestReceivedAt);
             } catch (AiServiceUnavailableException exception) {
                 log.warn("Returning safe AI unavailable SSE event ({})",
                     exception.getClass().getSimpleName());

@@ -204,6 +204,7 @@ CORE_RUNTIME_SERVICE_ACCOUNT
 CORE_DB_SECRET=hammerly-supabase-db-url
 CORE_JWT_SECRET=hammerly-jwt-secret
 CORE_REDIS_PASSWORD_SECRET=hammerly-redis-password
+CORE_CLOUD_RUN_MIN_INSTANCES=0
 
 AI_CLOUD_RUN_SERVICE=hammerly-ai
 AI_RUNTIME_SERVICE_ACCOUNT
@@ -218,6 +219,12 @@ AI_VPC_NETWORK=default
 AI_VPC_SUBNET=default
 AI_CLOUD_RUN_MIN_INSTANCES=0
 
+OPENAI_MODEL=gpt-5-mini
+OPENAI_MAX_OUTPUT_TOKENS=250
+HAMMERLY_AI_LLM_MAX_ATTEMPTS=2
+HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT=8s
+HAMMERLY_AI_LLM_IDLE_TIMEOUT=10s
+
 HAMMERLY_FRONTEND_URL=https://hammerly.jqiwen.com
 HAMMERLY_AI_URL
 HAMMERLY_API_URL
@@ -231,6 +238,11 @@ KAFKA_BOOTSTRAP_SERVERS
 Supabase JDBC secret. Likewise, `CORE_REDIS_PASSWORD_SECRET` may be omitted
 when `AI_REDIS_PASSWORD_SECRET` already names the shared Redis password
 secret. Service-specific variables take precedence when both are configured.
+
+For the lowest-cost configuration, leave both Cloud Run minimums at `0`. For a
+portfolio/demo environment where first-request latency matters, set both
+`CORE_CLOUD_RUN_MIN_INSTANCES=1` and `AI_CLOUD_RUN_MIN_INSTANCES=1`. This keeps
+one warm instance of each service and incurs the corresponding Cloud Run cost.
 
 Set the service-account variables to their full email addresses. No GitHub Action secret is required for GCP credentials or application runtime secrets.
 

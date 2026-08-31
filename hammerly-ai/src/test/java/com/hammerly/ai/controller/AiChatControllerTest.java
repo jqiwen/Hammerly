@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -128,11 +129,12 @@ class AiChatControllerTest {
 
     @Test
     void streamingEndpointEmitsIncrementalSseEvents() throws Exception {
-        when(aiChatService.stream(anyString(), any(), anyBoolean()))
+        when(aiChatService.stream(anyString(), any(), anyBoolean(), any()))
             .thenReturn(new AiStreamResult(Flux.just("Place ", "a bid."), ALLOWED));
 
         MvcResult started = mvc.perform(post("/internal/ai/chat/stream")
                 .header(InternalAiHeaders.USER_ID, "42")
+                .header(InternalAiHeaders.CORE_AI_STARTED_AT, "1700000000000")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .content("{\"message\":\"How do I bid?\",\"history\":[]}"))
@@ -144,11 +146,14 @@ class AiChatControllerTest {
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:chunk")))
             .andExpect(content().string(org.hamcrest.Matchers.containsString("event:done")));
+
+        verify(aiChatService).stream(anyString(), any(ChatRequest.class), anyBoolean(),
+            eq(1_700_000_000_000L));
     }
 
     @Test
     void cachedSingleChunkPreservesSseContract() throws Exception {
-        when(aiChatService.stream(anyString(), any(), anyBoolean()))
+        when(aiChatService.stream(anyString(), any(), anyBoolean(), any()))
             .thenReturn(new AiStreamResult(Flux.just("Cached answer"), ALLOWED));
 
         MvcResult started = mvc.perform(post("/internal/ai/chat/stream")
@@ -167,7 +172,7 @@ class AiChatControllerTest {
 
     @Test
     void streamingEndpointEmitsRealSourceMetadataBeforeChunks() throws Exception {
-        when(aiChatService.stream(anyString(), any(), anyBoolean()))
+        when(aiChatService.stream(anyString(), any(), anyBoolean(), any()))
             .thenReturn(new AiStreamResult(Flux.just("Bid now."), ALLOWED,
                 List.of(new RagSource("Hammerly Support Guide", "Bidding", "chunk-1"))));
 
@@ -188,7 +193,7 @@ class AiChatControllerTest {
 
     @Test
     void bulkheadFailureMapsToSafeBusySseEvent() throws Exception {
-        when(aiChatService.stream(anyString(), any(), anyBoolean()))
+        when(aiChatService.stream(anyString(), any(), anyBoolean(), any()))
             .thenReturn(new AiStreamResult(Flux.error(new AiConcurrencyLimitException(
                 new IllegalStateException("internal bulkhead detail"))), ALLOWED));
 

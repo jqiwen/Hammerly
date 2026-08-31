@@ -2,6 +2,7 @@ package com.hammerly.backend.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -116,7 +117,8 @@ class AiSupportControllerTest {
                 .getBytes(StandardCharsets.UTF_8));
             output.flush();
             return null;
-        }).when(client).stream(any(AiChatRequest.class), anyString(), any(java.io.OutputStream.class));
+        }).when(client).stream(any(AiChatRequest.class), anyString(),
+            any(java.io.OutputStream.class), anyLong());
 
         MvcResult started = mvc.perform(post("/api/ai/support/chat/stream")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -135,7 +137,8 @@ class AiSupportControllerTest {
     @Test
     void streamingFailureReturnsSafeSseErrorWithoutCrashing() throws Exception {
         org.mockito.Mockito.doThrow(new AiServiceUnavailableException("provider 500"))
-            .when(client).stream(any(AiChatRequest.class), anyString(), any(java.io.OutputStream.class));
+            .when(client).stream(any(AiChatRequest.class), anyString(),
+                any(java.io.OutputStream.class), anyLong());
 
         MvcResult started = mvc.perform(post("/api/ai/support/chat/stream")
                 .contentType(MediaType.APPLICATION_JSON)

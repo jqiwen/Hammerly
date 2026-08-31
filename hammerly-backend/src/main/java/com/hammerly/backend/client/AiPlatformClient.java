@@ -114,12 +114,21 @@ public class AiPlatformClient {
     }
 
     public void stream(AiChatRequest request, String userId, OutputStream browserOutput) {
-        long startedAt = System.nanoTime();
+        stream(request, userId, browserOutput, System.nanoTime());
+    }
+
+    public void stream(AiChatRequest request, String userId, OutputStream browserOutput,
+                       long coreRequestStartedAt) {
+        long aiRequestStartedAt = System.nanoTime();
+        long coreToAiStartMs = elapsedMillis(coreRequestStartedAt);
+        if (metrics != null) metrics.streamStarted(coreRequestStartedAt);
         try {
-            restClient.post()
+            Long firstAiByteMs = restClient.post()
                 .uri("/internal/ai/chat/stream")
                 .header(InternalAiHeaders.USER_ID, userId)
                 .header(InternalAiHeaders.RATE_LIMIT_PRECHECKED, "true")
+                .header(InternalAiHeaders.CORE_AI_STARTED_AT,
+                    Long.toString(System.currentTimeMillis()))
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .body(request)
@@ -127,15 +136,21 @@ public class AiPlatformClient {
                     if (!response.getStatusCode().is2xxSuccessful()) {
                         throw new AiServiceUnavailableException(UNAVAILABLE_MESSAGE);
                     }
-                    copyAndFlush(response.getBody(), browserOutput);
-                    return null;
+                    return copyAndFlush(response.getBody(), browserOutput, aiRequestStartedAt);
                 });
-            record("stream", "success", startedAt);
+            record("stream", "success", aiRequestStartedAt);
+            log.info("core_ai_latency outcome=success coreToAiStartMs={} firstAiByteMs={} totalMs={}",
+                coreToAiStartMs, firstAiByteMs == null ? -1 : firstAiByteMs,
+                elapsedMillis(coreRequestStartedAt));
         } catch (AiServiceUnavailableException exception) {
-            record("stream", "error", startedAt);
+            record("stream", "error", aiRequestStartedAt);
+            log.info("core_ai_latency outcome=error coreToAiStartMs={} firstAiByteMs=-1 totalMs={}",
+                coreToAiStartMs, elapsedMillis(coreRequestStartedAt));
             throw exception;
         } catch (RestClientException exception) {
-            record("stream", "error", startedAt);
+            record("stream", "error", aiRequestStartedAt);
+            log.info("core_ai_latency outcome=error coreToAiStartMs={} firstAiByteMs=-1 totalMs={}",
+                coreToAiStartMs, elapsedMillis(coreRequestStartedAt));
             log.warn("Hammerly AI stream proxy failed ({})", rootCauseName(exception));
             throw new AiServiceUnavailableException(UNAVAILABLE_MESSAGE, exception);
         }
@@ -169,13 +184,24 @@ public class AiPlatformClient {
         }
     }
 
-    private void copyAndFlush(InputStream aiInput, OutputStream browserOutput) throws IOException {
+    private long copyAndFlush(InputStream aiInput, OutputStream browserOutput,
+                              long aiRequestStartedAt) throws IOException {
         byte[] buffer = new byte[1_024];
         int bytesRead;
+        long firstAiByteMs = -1;
         while ((bytesRead = aiInput.read(buffer)) != -1) {
+            if (firstAiByteMs < 0) {
+                firstAiByteMs = elapsedMillis(aiRequestStartedAt);
+                if (metrics != null) metrics.firstAiByte(aiRequestStartedAt);
+            }
             browserOutput.write(buffer, 0, bytesRead);
             browserOutput.flush();
         }
+        return firstAiByteMs;
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
     }
 
     private String rootCauseName(Throwable throwable) {

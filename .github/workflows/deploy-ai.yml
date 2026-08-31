@@ -99,6 +99,11 @@ jobs:
       environment-variables: |-
         SPRING_PROFILES_ACTIVE=prod
         SPRING_AI_OPENAI_SDK_CHAT_OPTIONS_REASONING_EFFORT=low
+        OPENAI_MODEL=${{ vars.OPENAI_MODEL || 'gpt-5-mini' }}
+        OPENAI_MAX_OUTPUT_TOKENS=${{ vars.OPENAI_MAX_OUTPUT_TOKENS || '250' }}
+        HAMMERLY_AI_LLM_MAX_ATTEMPTS=${{ vars.HAMMERLY_AI_LLM_MAX_ATTEMPTS || '2' }}
+        HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT=${{ vars.HAMMERLY_AI_LLM_FIRST_TOKEN_TIMEOUT || '8s' }}
+        HAMMERLY_AI_LLM_IDLE_TIMEOUT=${{ vars.HAMMERLY_AI_LLM_IDLE_TIMEOUT || '10s' }}
         REDIS_HOST=${{ vars.AI_REDIS_HOST }}
         REDIS_PORT=${{ vars.AI_REDIS_PORT }}
         REDIS_SSL=${{ vars.AI_REDIS_SSL }}

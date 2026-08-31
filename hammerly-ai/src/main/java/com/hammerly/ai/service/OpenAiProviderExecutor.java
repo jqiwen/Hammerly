@@ -7,6 +7,7 @@ import com.hammerly.ai.exception.AiCircuitOpenException;
 import com.hammerly.ai.exception.AiConcurrencyLimitException;
 import com.hammerly.ai.exception.AiProviderUnavailableException;
 import com.hammerly.ai.observability.AiMetrics;
+import com.hammerly.ai.observability.AiRequestLatency;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -77,11 +78,12 @@ public class OpenAiProviderExecutor {
     }
 
     public Flux<String> stream(String operation, Supplier<Flux<String>> providerCall) {
-        return Flux.defer(() -> {
+        return Flux.deferContextual(context -> {
             long overallStartedAt = System.nanoTime();
             AtomicInteger attempts = new AtomicInteger();
+            AiRequestLatency latency = context.getOrDefault(AiRequestLatency.class, null);
             return Flux.defer(() -> streamAttempt(operation, providerCall,
-                    attempts.incrementAndGet(), overallStartedAt))
+                    attempts.incrementAndGet(), overallStartedAt, latency))
                 .transformDeferred(CircuitBreakerOperator.of(circuitBreaker))
                 .transformDeferred(RetryOperator.of(retry))
                 .transformDeferred(BulkheadOperator.of(bulkhead))
@@ -107,10 +109,12 @@ public class OpenAiProviderExecutor {
     }
 
     private Flux<String> streamAttempt(String operation, Supplier<Flux<String>> providerCall,
-                                       int attempt, long overallStartedAt) {
+                                       int attempt, long overallStartedAt,
+                                       AiRequestLatency latency) {
         return Flux.defer(() -> {
             long attemptStartedAt = System.nanoTime();
             AtomicBoolean firstChunkEmitted = new AtomicBoolean();
+            if (latency != null) latency.providerAttemptStarted();
             metrics.providerRequestStarted(operation);
 
             Flux<String> providerFlux;
@@ -126,6 +130,7 @@ public class OpenAiProviderExecutor {
                 .doOnNext(ignored -> {
                     if (firstChunkEmitted.compareAndSet(false, true)) {
                         metrics.providerFirstToken(operation, attemptStartedAt);
+                        if (latency != null) latency.providerFirstToken();
                     }
                 })
                 .doOnComplete(() -> {

@@ -50,14 +50,21 @@ public class ConversationContextBuilder implements AiContextBuilder {
                 usedChars += summary.length();
             }
 
+            long ragStartedAt = System.nanoTime();
             RagResult result = rag.retrieve(question);
+            long ragDurationMs = elapsedMillis(ragStartedAt);
             String groundedQuestion = groundedQuestion(question, result.chunks(), usedChars);
             List<RagChunk> included = includedChunks(result.chunks(), groundedQuestion);
             return new BuiltAiContext(messages, groundedQuestion,
-                included.stream().map(RagChunk::citation).toList());
+                included.stream().map(RagChunk::citation).toList(),
+                elapsedMillis(startedAt), ragDurationMs);
         } finally {
             metrics.contextBuilt(startedAt);
         }
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
     }
 
     private List<ChatMessage> boundedRecent(List<ChatMessage> storedContext) {

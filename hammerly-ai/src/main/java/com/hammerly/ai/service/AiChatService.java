@@ -17,6 +17,7 @@ import com.hammerly.ai.event.AiEventPublisher;
 import com.hammerly.ai.event.SuccessfulAiTurn;
 import com.hammerly.ai.event.SummaryMessage;
 import com.hammerly.ai.observability.AiMetrics;
+import com.hammerly.ai.observability.AiRequestLatency;
 import com.hammerly.ai.ratelimit.AiRateLimiter;
 import com.hammerly.ai.ratelimit.RateLimitDecision;
 import java.time.Clock;
@@ -86,12 +87,11 @@ public class AiChatService {
                 appendExchange(userId, request.conversationId(), request.message(), answer, prepared)
                     .ifPresent(this::publishEventsSafely);
                 metrics.requestCompleted("success", startedAt);
-                log.info("AI chat cache hit user={} conversation={}", userId, request.conversationId());
+                log.info("AI chat cache hit");
                 return new AiChatResult(answer, rateLimit, prepared.sources());
             }
 
-            log.info("AI chat cache miss user={} conversation={} contextMessages={}",
-                userId, request.conversationId(), prepared.context().size());
+            log.info("AI chat cache miss contextMessages={}", prepared.context().size());
             try {
                 String answer = modelClient.chat(prepared.context(), prepared.modelQuestion());
                 if (!StringUtils.hasText(answer)) {
@@ -119,18 +119,26 @@ public class AiChatService {
     }
 
     public AiStreamResult stream(String userId, ChatRequest request, boolean permitAlreadyAcquired) {
+        return stream(userId, request, permitAlreadyAcquired, null);
+    }
+
+    public AiStreamResult stream(String userId, ChatRequest request, boolean permitAlreadyAcquired,
+                                 Long coreAiStartedAtEpochMs) {
         RateLimitDecision rateLimit = permitAlreadyAcquired
             ? RateLimitDecision.prechecked()
             : acquirePermit(userId);
         long startedAt = System.nanoTime();
+        AiRequestLatency latency = AiRequestLatency.start(coreAiStartedAtEpochMs);
         metrics.aiRequestStarted();
         try {
             PreparedRequest prepared = prepare(userId, request);
+            latency.contextBuilt(prepared.contextDurationMs(), prepared.ragDurationMs());
             Optional<String> cached = findCached(prepared);
             if (cached.isPresent()) {
+                latency.cacheHit();
                 String answer = cached.orElseThrow();
                 prepared.retryCacheKey().ifPresent(key -> responseCache.put(prepared.cacheKey(), answer));
-                log.info("AI stream cache hit user={} conversation={}", userId, request.conversationId());
+                log.info("AI stream cache hit");
                 AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
                 Flux<String> cachedStream = Flux.just(answer)
                     .doOnComplete(() -> appendExchange(userId, request.conversationId(),
@@ -142,11 +150,10 @@ public class AiChatService {
                             Optional.ofNullable(completedTurn.get()).ifPresent(this::publishEventsSafely);
                         }
                     });
-                return new AiStreamResult(cachedStream, rateLimit, prepared.sources());
+                return new AiStreamResult(cachedStream, rateLimit, prepared.sources(), latency);
             }
 
-            log.info("AI stream cache miss user={} conversation={} contextMessages={}",
-                userId, request.conversationId(), prepared.context().size());
+            log.info("AI stream cache miss contextMessages={}", prepared.context().size());
             StringBuilder completedResponse = new StringBuilder();
             AtomicReference<SuccessfulAiTurn> completedTurn = new AtomicReference<>();
             final Flux<String> chunks;
@@ -181,11 +188,13 @@ public class AiChatService {
                 })
                 .onErrorMap(exception -> exception instanceof AiProviderUnavailableException
                     ? exception
-                    : new AiProviderUnavailableException("AI provider stream was interrupted.", exception));
-            return new AiStreamResult(observed, rateLimit, prepared.sources());
+                    : new AiProviderUnavailableException("AI provider stream was interrupted.", exception))
+                .contextWrite(context -> context.put(AiRequestLatency.class, latency));
+            return new AiStreamResult(observed, rateLimit, prepared.sources(), latency);
         } catch (RuntimeException exception) {
             metrics.requestCompleted("error", startedAt);
             metrics.aiRequestFinished();
+            latency.completed("error");
             throw exception;
         }
     }
@@ -227,7 +236,7 @@ public class AiChatService {
             built.modelQuestion(), built.messages());
         Optional<String> retryCacheKey = retryCacheKey(userId, request, built.messages());
         return new PreparedRequest(built.messages(), snapshot, cacheKey, retryCacheKey,
-            built.modelQuestion(), built.sources());
+            built.modelQuestion(), built.sources(), built.contextDurationMs(), built.ragDurationMs());
     }
 
     private Optional<String> findCached(PreparedRequest prepared) {
@@ -292,8 +301,7 @@ public class AiChatService {
             eventPublisher.publishSuccessfulTurn(turn);
         } catch (RuntimeException exception) {
             metrics.kafkaPublishFailure("successful_turn");
-            log.warn("Kafka event dispatch failed conversation={} errorType={}",
-                turn.conversationId(), rootCauseName(exception));
+            log.warn("Kafka event dispatch failed errorType={}", rootCauseName(exception));
         }
     }
 
@@ -322,6 +330,8 @@ public class AiChatService {
                                    String cacheKey,
                                    Optional<String> retryCacheKey,
                                    String modelQuestion,
-                                   List<com.hammerly.ai.rag.RagSource> sources) {
+                                   List<com.hammerly.ai.rag.RagSource> sources,
+                                   long contextDurationMs,
+                                   long ragDurationMs) {
     }
 }

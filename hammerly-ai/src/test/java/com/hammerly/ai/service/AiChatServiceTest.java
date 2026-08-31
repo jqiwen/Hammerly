@@ -2,6 +2,7 @@ package com.hammerly.ai.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -232,10 +233,14 @@ class AiChatServiceTest {
                 : Flux.just("Final ", "answer"))
         );
 
-        List<String> chunks = service.stream("42", request(), false).chunks().collectList().block();
+        AiStreamResult result = service.stream("42", request(), false,
+            System.currentTimeMillis());
+        List<String> chunks = result.chunks().collectList().block();
 
         assertEquals(List.of("Final ", "answer"), chunks);
         assertEquals(2, attempts.get());
+        assertEquals(2, result.latency().providerAttempts());
+        assertTrue(result.latency().providerTtftMs() >= 0);
         verify(responseCache, times(1)).put(anyString(), eq("Final answer"));
         ArgumentCaptor<List<ConversationMessage>> messages = ArgumentCaptor.forClass(List.class);
         verify(conversationStore, times(1)).append(eq("42"), eq(CONVERSATION_ID), messages.capture());

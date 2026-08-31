@@ -7,10 +7,17 @@ import java.util.List;
 public record BuiltAiContext(
     List<ChatMessage> messages,
     String modelQuestion,
-    List<RagSource> sources
+    List<RagSource> sources,
+    long contextDurationMs,
+    long ragDurationMs
 ) {
     public BuiltAiContext {
         messages = List.copyOf(messages);
         sources = List.copyOf(sources);
+    }
+
+    public BuiltAiContext(List<ChatMessage> messages, String modelQuestion,
+                          List<RagSource> sources) {
+        this(messages, modelQuestion, sources, 0, 0);
     }
 }

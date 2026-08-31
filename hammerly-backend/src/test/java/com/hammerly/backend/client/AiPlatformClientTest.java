@@ -92,6 +92,8 @@ class AiPlatformClientTest {
         test.server().expect(once(), requestTo("http://hammerly-ai/internal/ai/chat/stream"))
             .andExpect(header(InternalAiHeaders.USER_ID, "42"))
             .andExpect(header(InternalAiHeaders.RATE_LIMIT_PRECHECKED, "true"))
+            .andExpect(header(InternalAiHeaders.CORE_AI_STARTED_AT,
+                org.hamcrest.Matchers.matchesPattern("\\d+")))
             .andRespond(withSuccess(sse, MediaType.TEXT_EVENT_STREAM));
 
         AiRateLimitStatus permit = test.client().acquireStreamPermit("42");

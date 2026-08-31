@@ -29,4 +29,14 @@ public class CoreAiMetrics {
                 .register(registry).record(elapsed);
         }
     }
+
+    public void streamStarted(long coreRequestStartedAtNanos) {
+        registry.timer("ai.core.stream.start.delay")
+            .record(Duration.ofNanos(System.nanoTime() - coreRequestStartedAtNanos));
+    }
+
+    public void firstAiByte(long aiRequestStartedAtNanos) {
+        registry.timer("ai.core.first.byte")
+            .record(Duration.ofNanos(System.nanoTime() - aiRequestStartedAtNanos));
+    }
 }

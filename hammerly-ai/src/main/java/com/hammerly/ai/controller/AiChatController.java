@@ -11,6 +11,7 @@ import com.hammerly.ai.service.AiChatService;
 import com.hammerly.ai.service.AiStreamResult;
 import jakarta.validation.Valid;
 import java.util.regex.Pattern;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.SignalType;
 
 @RestController
 @RequestMapping("/internal/ai")
@@ -53,10 +55,13 @@ public class AiChatController {
             @RequestHeader(InternalAiHeaders.USER_ID) String userId,
             @RequestHeader(name = InternalAiHeaders.RATE_LIMIT_PRECHECKED,
                 defaultValue = "false") boolean permitAlreadyAcquired,
+            @RequestHeader(name = InternalAiHeaders.CORE_AI_STARTED_AT,
+                required = false) Long coreAiStartedAtEpochMs,
             @Valid @RequestBody ChatRequest request) {
         final AiStreamResult result;
         try {
-            result = aiChatService.stream(validateUserId(userId), request, permitAlreadyAcquired);
+            result = aiChatService.stream(validateUserId(userId), request,
+                permitAlreadyAcquired, coreAiStartedAtEpochMs);
         } catch (AiRateLimitExceededException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -69,16 +74,23 @@ public class AiChatController {
             ? Flux.empty()
             : Flux.just(ServerSentEvent.builder(ChatStreamEvent.metadata(result.sources()))
                 .event("metadata").build());
+        AtomicReference<String> latencyOutcome = new AtomicReference<>("success");
         Flux<ServerSentEvent<ChatStreamEvent>> events = metadata.concatWith(result.chunks()
-            .map(chunk -> ServerSentEvent.builder(new ChatStreamEvent(chunk))
-                .event("chunk").build())
+            .map(chunk -> {
+                result.firstSseToken();
+                return ServerSentEvent.builder(new ChatStreamEvent(chunk))
+                    .event("chunk").build();
+            })
             .concatWithValues(ServerSentEvent.builder(new ChatStreamEvent(""))
                 .event("done").build()))
             .onErrorResume(exception -> {
+                latencyOutcome.set("error");
                 log.warn("AI stream returned a safe error event ({})",
                     exception.getClass().getSimpleName());
                 return Flux.just(unavailableEvent(exception));
-            });
+            })
+            .doFinally(signal -> result.completeLatency(signal == SignalType.CANCEL
+                ? "cancelled" : latencyOutcome.get()));
         return ResponseEntity.ok()
             .headers(rateLimitHeaders(result.rateLimit()))
             .body(events);

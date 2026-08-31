@@ -376,8 +376,14 @@ The former interactive worst case allowed three provider attempts with a 12-seco
 timeout plus backoff while Core waited roughly 45–50 seconds. Defaults are now two attempts, an
 8-second first-token deadline, 10-second idle deadline, capped two-second `Retry-After`, and short
 250-token/low-reasoning support answers. Provider retry remains impossible after any token has been
-emitted. Cloud Run cold-start cost/latency is selected with GitHub variable
-`AI_CLOUD_RUN_MIN_INSTANCES`: `0` for cost saving or `1` for a warm portfolio/demo instance.
+emitted. Cloud Run cold-start cost/latency is selected independently with GitHub variables
+`CORE_CLOUD_RUN_MIN_INSTANCES` and `AI_CLOUD_RUN_MIN_INSTANCES`: keep both at `0` for cost
+saving, or set both to `1` for warm portfolio/demo instances.
+
+Every completed SSE request writes one identifier-free `ai_latency` summary with Core-to-AI
+network time, context/RAG duration, provider TTFT and attempts, first SSE-token time, and total
+duration. Core writes a matching `core_ai_latency` summary with request-to-AI-start, first AI byte,
+and total browser-facing stream time. These fields are intended for cold-versus-warm comparisons.
 
 The GKE demo is intentionally separate from the Cloud Run production path. Prometheus and Grafana
 are private ClusterIP services reached through `kubectl port-forward`; in-cluster Redis and Kafka are
