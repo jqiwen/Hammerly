@@ -1,8 +1,13 @@
 # Hammerly Google Cloud deployment setup
 
-The deployment workflows and demo infrastructure scripts target project `hammerly-506214` in `us-west1`. The standard resource names are `hammerly-backend`, `hammerly-ai`, Artifact Registry repository `hammerly`, Memorystore instance `hammerly-redis`, Kafka VM `hammerly-kafka`, and Cloud Run worker pool `hammerly-worker`.
+Production deployments target project `hammerly-506214` in `us-west1`. The live services are
+`hammerly-backend` and `hammerly-ai` on Cloud Run, `hammerly.jqiwen.com` on GitHub Pages, Upstash
+Redis over TCP/TLS, and Supabase PostgreSQL/pgvector. Artifact Registry repository `hammerly` also
+stores the manually published `hammerly-worker` image.
 
-The normal cost-saving state is demo infrastructure OFF: AI has Redis/Kafka disabled, the worker pool is scaled to zero, and the Kafka VM is stopped. AI remains usable with bounded process-local state. Demo infrastructure ON restores the full Redis/Kafka/worker behavior.
+Kafka is disabled in production for now, and no workflow starts a Worker Pool, VM, or broker. The
+Kafka/Worker code and the historical demo infrastructure scripts remain available for a future
+explicit reactivation, but they are not part of the current production CI/CD path.
 
 Production secret values stay in Google Secret Manager. GitHub stores only non-secret resource identifiers and secret **names**. GitHub authenticates to Google Cloud with short-lived OIDC credentials through Workload Identity Federation; do not create or upload a service-account JSON key.
 
@@ -33,9 +38,7 @@ export HAMMERLY_AI_RUNTIME_EMAIL="${HAMMERLY_AI_RUNTIME_NAME}@${HAMMERLY_PROJECT
 ```bash
 gcloud services enable \
   artifactregistry.googleapis.com \
-  compute.googleapis.com \
   iamcredentials.googleapis.com \
-  redis.googleapis.com \
   run.googleapis.com \
   secretmanager.googleapis.com \
   sts.googleapis.com
@@ -166,26 +169,22 @@ for HAMMERLY_SECRET_NAME in \
 done
 ```
 
-## 6. Configure optional demo Redis before AI deployment
+## 6. Configure production Upstash Redis
 
-Demo-on mode uses a Basic 1 GiB Memorystore instance named `hammerly-redis` with AUTH on the `default` VPC. AI and Core connect through Cloud Run Direct VPC egress; no continuously billed Serverless VPC Access connector is needed. Demo-off mode does not require a reachable Redis endpoint. The workflows use these additional non-secret variables:
-
-```text
-AI_VPC_NETWORK=default
-AI_VPC_SUBNET=default
-```
-
-Record only these non-secret connection settings in GitHub variables:
+Production uses the Upstash Redis TCP endpoint with TLS, not Memorystore and not the Upstash REST
+API. Record only these non-secret connection settings in GitHub repository variables:
 
 ```text
-AI_REDIS_HOST
-AI_REDIS_PORT
-AI_REDIS_SSL
-AI_VPC_NETWORK
-AI_VPC_SUBNET
+AI_REDIS_HOST=relaxed-leopard-178153.upstash.io
+AI_REDIS_PORT=6379
+AI_REDIS_SSL=true
+HAMMERLY_REDIS_ENABLED=true
 ```
 
-The password remains in `hammerly-redis-password` in Secret Manager.
+The password remains only in `hammerly-redis-password` in Google Secret Manager and is injected as
+`REDIS_PASSWORD`. Never store the password or an Upstash REST token in workflow YAML, source,
+documentation, logs, or a GitHub variable. The existing Cloud Run network/subnet settings are
+preserved separately by `AI_VPC_NETWORK` and `AI_VPC_SUBNET`.
 
 ## 7. Configure GitHub
 
@@ -193,8 +192,8 @@ Create a GitHub environment named `production`. Optionally require a reviewer fo
 
 ```text
 GCP_DEPLOYMENTS_ENABLED=false
-GCP_PROJECT_ID
-GCP_REGION
+GCP_PROJECT_ID=hammerly-506214
+GCP_REGION=us-west1
 GCP_WORKLOAD_IDENTITY_PROVIDER
 GCP_DEPLOY_SERVICE_ACCOUNT
 GCP_ARTIFACT_REPOSITORY=hammerly
@@ -221,9 +220,9 @@ AI_DB_SECRET=hammerly-supabase-db-url
 AI_OPENAI_SECRET=hammerly-openai-api-key
 AI_REDIS_PASSWORD_SECRET=hammerly-redis-password
 AI_INTERNAL_TOKEN_SECRET=hammerly-ai-internal-token
-AI_REDIS_HOST
-AI_REDIS_PORT
-AI_REDIS_SSL
+AI_REDIS_HOST=relaxed-leopard-178153.upstash.io
+AI_REDIS_PORT=6379
+AI_REDIS_SSL=true
 AI_VPC_NETWORK=default
 AI_VPC_SUBNET=default
 AI_CLOUD_RUN_MIN_INSTANCES=0
@@ -247,7 +246,7 @@ HAMMERLY_FRONTEND_URL=https://hammerly.jqiwen.com
 HAMMERLY_AI_URL
 HAMMERLY_API_URL
 
-HAMMERLY_REDIS_ENABLED=false
+HAMMERLY_REDIS_ENABLED=true
 HAMMERLY_KAFKA_ENABLED=false
 KAFKA_BOOTSTRAP_SERVERS
 ```
@@ -262,32 +261,42 @@ portfolio/demo environment where first-request latency matters, set both
 `CORE_CLOUD_RUN_MIN_INSTANCES=1` and `AI_CLOUD_RUN_MIN_INSTANCES=1`. This keeps
 one warm instance of each service and incurs the corresponding Cloud Run cost.
 For the same low-latency Core profile, set `HAMMERLY_DB_MIN_IDLE=1` so its warm
-instance retains one ready database connection, and set
-`HAMMERLY_MARKETPLACE_CACHE_ENABLED=true` only after the configured Redis endpoint
-is reachable from Core. Keep the documented `0`/`false` values in cost-saving or
-Redis-free deployments.
+instance retains one ready database connection. Set `HAMMERLY_MARKETPLACE_CACHE_ENABLED=true`
+only if Core should use the configured Upstash endpoint for that cache.
 
-Core always enables auth throttling and trusts Cloud Run's forwarded client address in the deployment workflow. The default process-local limiter is safe for the Redis-free/cost-saving profile but applies independently to each Cloud Run instance. Set `HAMMERLY_AUTH_RATE_LIMIT_REDIS_ENABLED=true` when Memorystore is reachable to enforce shared thresholds across instances. Redis failures automatically fall back to bounded local windows. Access tokens expire after `HAMMERLY_AUTH_JWT_TTL` (45 minutes by default); logout is client-side token disposal and does not revoke an already issued token.
+Core always enables auth throttling and trusts Cloud Run's forwarded client address in the deployment workflow. The default process-local limiter applies independently to each Cloud Run instance. Set `HAMMERLY_AUTH_RATE_LIMIT_REDIS_ENABLED=true` only when Core should use Upstash to enforce shared thresholds across instances. Redis failures automatically fall back to bounded local windows. Access tokens expire after `HAMMERLY_AUTH_JWT_TTL` (45 minutes by default); logout is client-side token disposal and does not revoke an already issued token.
 
 Cloud Run startup CPU boost is enabled explicitly by both request-driven deployment workflows.
-For a warm portfolio/demo profile, enable Memorystore and set `HAMMERLY_REDIS_ENABLED=true` in
-addition to both minimum-instance variables. This activates the cross-request conversation-summary,
-RAG-retrieval, and grounded-FAQ caches; every Redis operation still fails open to uncached work.
+Keep `HAMMERLY_REDIS_ENABLED=true` for production AI so Upstash provides cross-request
+conversation-summary, RAG-retrieval, and grounded-FAQ caches; every Redis operation still fails
+open to uncached work.
 
 Set the service-account variables to their full email addresses. No GitHub Action secret is required for GCP credentials or application runtime secrets.
 
 ## 8. First deployment order
 
-1. Leave `HAMMERLY_REDIS_ENABLED=false` and `HAMMERLY_KAFKA_ENABLED=false` for the initial cost-saving deployment. RAG reads can still remain enabled because they query READY pgvector chunks synchronously; Kafka is required only to ingest or refresh documents.
+1. Set the documented Upstash variables, keep `HAMMERLY_REDIS_ENABLED=true`, and keep `HAMMERLY_KAFKA_ENABLED=false`. RAG reads can remain enabled because they query READY pgvector chunks synchronously; Kafka is required only to ingest or refresh documents.
 2. Set `GCP_DEPLOYMENTS_ENABLED=true`.
 3. Manually run **Deploy AI** from GitHub Actions.
 4. Read the resulting AI Cloud Run URL and set `HAMMERLY_AI_URL` to it.
 5. Manually run **Deploy Core**.
 6. Read the resulting Core URL and set `HAMMERLY_API_URL` to `CORE_URL/api`.
-7. Run **Deploy frontend to GitHub Pages** or push a UI change.
+7. Run **Deploy Frontend** or push a UI change through CI.
 8. Confirm Core `/health`, AI `/actuator/health`, and the browser-to-Core flow.
 
-Subsequent relevant pushes to `main` deploy each service independently. Core and AI use stable configured URLs; no generated URL is written into Java or workflow source.
+Subsequent relevant pushes to `main` run the affected CI job first and then call only that service's
+deployment workflow. Core and AI use stable configured URLs; no generated URL is written into Java
+or workflow source. A manual CI run validates only and never deploys.
+
+The common `_deploy-cloud-run.yml` workflow authenticates, builds the multi-stage image, pushes it,
+deploys the immutable commit tag, and checks health. Automatic deployment does not repeat the full
+Maven suite because CI has already passed; the Docker build still performs
+`mvn package -DskipTests` as compile/package validation. Direct manual Deploy AI/Core runs use that
+same Docker validation.
+
+`Publish Worker Image` is `workflow_dispatch` only. It builds and pushes the Worker image but never
+starts a Worker runtime. The obsolete GKE deployment and Phase 5 load-test workflows were removed
+from GitHub Actions; their manifests, scripts, results, and documentation remain available locally.
 
 ## 9. Seed and verify the RAG knowledge document
 
@@ -314,9 +323,13 @@ set `SUPABASE_DB_URL` in the current shell and run:
 The status check prints document state, chunk count, citable section labels, knowledge-base version,
 and aggregate unpublished outbox status. It never prints document content or database credentials.
 
-## 10. Demo infrastructure ON/OFF
+## 10. Historical demo infrastructure scripts
 
-The scripts are idempotent and pass `--project=hammerly-506214` and `--region=us-west1` by default. They never run as part of tests or CI. Preview either workflow with `-WhatIf`.
+These scripts are retained as deployment examples only. They are not called by GitHub Actions and
+are not the current Upstash-based production architecture. Do not run them against the live project
+unless deliberately recreating the old Kafka/Memorystore demo in a separately reviewed task. They
+pass `--project=hammerly-506214` and `--region=us-west1` by default, so always preview with `-WhatIf`
+and override the target when using an isolated demo project.
 
 Turn expensive infrastructure OFF without deleting Redis:
 
@@ -357,11 +370,14 @@ The ON workflow:
 
 The Kafka VM must already exist and its broker must listen on and advertise its stable private address on port `9092`; the script fails instead of inventing a broker configuration. The worker image must already have been published by `deploy-worker.yml`. Override resource names, the worker image, or worker count with script parameters when the live environment differs.
 
-Cloud Run deployments use the GitHub variables on every new AI revision. Keep `HAMMERLY_REDIS_ENABLED` and `HAMMERLY_KAFKA_ENABLED` aligned with the intended persistent mode, or rerun the ON/OFF script after a deployment. The repository defaults both production variables to `false` when they are absent.
+Current Cloud Run deployments use the GitHub variables on every new AI revision and require
+`HAMMERLY_REDIS_ENABLED=true` with TLS for Upstash. `HAMMERLY_KAFKA_ENABLED` remains `false` unless
+an operator explicitly restores the broker and Worker runtime in a separate change. The legacy
+ON/OFF scripts do not define current production state.
 
 ## 11. Worker runtime
 
-`deploy-worker.yml` tests the worker and publishes `hammerly-worker:<git-sha>` and `latest` to Artifact Registry. It intentionally does not start a runtime. `enable-demo-infra.ps1` creates or updates the continuous Cloud Run worker pool only when demo infrastructure is explicitly enabled; `disable-demo-infra.ps1` returns it to zero instances.
+`deploy-worker.yml` is manual-only and publishes `hammerly-worker:<git-sha>` and `latest` to Artifact Registry. The multi-stage image build packages the application; the full embedded-Kafka suite runs in CI. The workflow intentionally does not start a runtime. The historical `enable-demo-infra.ps1` can create or update a continuous Cloud Run worker pool only when an operator explicitly invokes it; `disable-demo-infra.ps1` returns that legacy demo runtime to zero instances.
 
 Before enabling the demo worker runtime, provision:
 

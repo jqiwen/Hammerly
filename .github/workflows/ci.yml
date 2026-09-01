@@ -23,6 +23,9 @@ jobs:
       core: ${{ steps.filter.outputs.core }}
       ai: ${{ steps.filter.outputs.ai }}
       worker: ${{ steps.filter.outputs.worker }}
+      deploy_ui: ${{ steps.filter.outputs.deploy_ui }}
+      deploy_core: ${{ steps.filter.outputs.deploy_core }}
+      deploy_ai: ${{ steps.filter.outputs.deploy_ai }}
     steps:
       - name: Check out repository history
         uses: actions/checkout@v7
@@ -71,6 +74,9 @@ jobs:
           core=false
           ai=false
           worker=false
+          deploy_ui=false
+          deploy_core=false
+          deploy_ai=false
           changed '^hammerly-ui/' && ui=true
           changed '^hammerly-backend/' && core=true
           changed '^hammerly-ai/' && ai=true
@@ -79,7 +85,7 @@ jobs:
             ai=true
             worker=true
           fi
-          changed '^(load-test/phase5/|scripts/load-test/|\.github/workflows/phase5-load-test\.yml$)' && ai=true
+          changed '^(load-test/phase5/|scripts/load-test/)' && ai=true
           changed '^\.github/workflows/deploy-frontend\.yml$' && ui=true
           changed '^\.github/workflows/deploy-core\.yml$' && core=true
           changed '^\.github/workflows/deploy-ai\.yml$' && ai=true
@@ -96,11 +102,26 @@ jobs:
             worker=true
           fi
 
+          # Automatic CD is downstream of CI. Only application or deployment
+          # changes on main select a deployment; validation-only shared files do not.
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            changed '^(hammerly-ui/|\.github/workflows/deploy-frontend\.yml$)' && deploy_ui=true
+            changed '^(hammerly-backend/|\.github/workflows/deploy-core\.yml$)' && deploy_core=true
+            changed '^(hammerly-ai/|\.github/workflows/deploy-ai\.yml$)' && deploy_ai=true
+            if changed '^\.github/workflows/_deploy-cloud-run\.yml$'; then
+              deploy_core=true
+              deploy_ai=true
+            fi
+          fi
+
           {
             echo "ui=${ui}"
             echo "core=${core}"
             echo "ai=${ai}"
             echo "worker=${worker}"
+            echo "deploy_ui=${deploy_ui}"
+            echo "deploy_core=${deploy_core}"
+            echo "deploy_ai=${deploy_ai}"
           } >> "${GITHUB_OUTPUT}"
 
   ui:
@@ -130,6 +151,9 @@ jobs:
 
       - name: Type-check
         run: npm run type-check
+
+      - name: Test
+        run: npm test
 
       - name: Build
         env:
@@ -164,11 +188,8 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
-      - name: Test
-        run: ./mvnw -B -ntp test
-
-      - name: Package
-        run: ./mvnw -B -ntp package -DskipTests
+      - name: Test and package
+        run: ./mvnw -B -ntp package
 
   ai:
     name: AI CI
@@ -199,11 +220,8 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
-      - name: Test without paid providers
-        run: ./mvnw -B -ntp test
-
-      - name: Package
-        run: ./mvnw -B -ntp package -DskipTests
+      - name: Test and package without paid providers
+        run: ./mvnw -B -ntp package
 
   worker:
     name: Worker CI
@@ -231,8 +249,42 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
-      - name: Test with embedded Kafka
-        run: ./mvnw -B -ntp test
+      - name: Test and package with embedded Kafka
+        run: ./mvnw -B -ntp package
 
-      - name: Package
-        run: ./mvnw -B -ntp package -DskipTests
+  deploy-ui:
+    name: Deploy Frontend after CI
+    needs: [changes, ui]
+    if: >-
+      github.event_name == 'push' &&
+      needs.changes.outputs.deploy_ui == 'true' &&
+      needs.ui.result == 'success'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-frontend.yml
+
+  deploy-core:
+    name: Deploy Core after CI
+    needs: [changes, core]
+    if: >-
+      github.event_name == 'push' &&
+      needs.changes.outputs.deploy_core == 'true' &&
+      needs.core.result == 'success'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-core.yml
+
+  deploy-ai:
+    name: Deploy AI after CI
+    needs: [changes, ai]
+    if: >-
+      github.event_name == 'push' &&
+      needs.changes.outputs.deploy_ai == 'true' &&
+      needs.ai.result == 'success'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-ai.yml

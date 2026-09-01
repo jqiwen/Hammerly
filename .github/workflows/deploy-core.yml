@@ -1,12 +1,7 @@
 name: Deploy Core
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "hammerly-backend/**"
-      - ".github/workflows/deploy-core.yml"
-      - ".github/workflows/_deploy-cloud-run.yml"
+  workflow_call:
   workflow_dispatch:
 
 concurrency:

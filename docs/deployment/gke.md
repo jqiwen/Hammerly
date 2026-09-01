@@ -107,10 +107,10 @@ $sha = git rev-parse HEAD
 ./scripts/gcp/deploy-gke-demo.ps1 -Overlay loadtest -GitSha $sha -WorkerGitSha $sha
 ```
 
-If a service was not changed by the commit, its workflow might not yet have
-published that SHA. Build and push the missing immutable image, or use the last
-SHA that genuinely built that service with `-WorkerGitSha`. Never relabel an
-unrelated image just to make the tag exist.
+The production workflows publish Core and AI images only after their affected CI jobs pass, while
+the Worker image is manual-only. Before using this historical demo, build and push every immutable
+image required by the selected overlay, or use the last SHA that genuinely built that service with
+`-WorkerGitSha`. Never relabel an unrelated image just to make the tag exist.
 
 For a real OpenAI demo after the load test, deploy the separate overlay:
 
@@ -202,21 +202,18 @@ Copy the measured values and replica timeline into
 cluster was not deployed, metrics were unavailable, or HPA behavior was not
 observed.
 
-## Manual CI/CD
+## Archived manual deployment
 
-`.github/workflows/deploy-gke.yml` is `workflow_dispatch` only. It runs all
-three Maven test suites, authenticates with GitHub OIDC, builds and pushes all
-three SHA-tagged images, deploys the selected overlay, waits for rollouts, and
-verifies public Backend health. It never creates a cluster on a source push.
+The obsolete `Deploy GKE demo` GitHub Actions workflow has been removed from the production CI/CD
+surface. The Kustomize manifests and PowerShell scripts remain as historical Kubernetes examples.
+An explicit demo run must first pass the repository's local/CI test suites, publish the required
+Core, AI, and Worker SHA-tagged images, and then use the commands above from an authenticated shell.
+Nothing in the remaining GitHub Actions workflows creates or deploys a GKE cluster.
 
-Required GitHub variables are the existing `GCP_PROJECT_ID`, `GCP_REGION`,
-`GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, and
-`GCP_ARTIFACT_REPOSITORY`; `GCP_GKE_CLUSTER` defaults to `hammerly-gke`.
-The federated deployer needs Artifact Registry writer, GKE deployment/get-
-credentials access, Secret Manager accessor, and Kubernetes RBAC for the
-declared resources. First bootstrap also needs permission to create the Grafana
-secret; remove that extra permission after it exists. No service-account JSON
-key is used.
+The operator still needs Artifact Registry writer, GKE deployment/get-credentials access, Secret
+Manager accessor, and Kubernetes RBAC for the declared resources. First bootstrap also needs
+permission to create the Grafana secret; remove that extra permission after it exists. Continue to
+use short-lived authenticated credentials; no service-account JSON key is required.
 
 ## Teardown and cost control
 

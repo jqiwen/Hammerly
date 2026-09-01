@@ -125,11 +125,12 @@ for architecture, PromQL, dashboard sections, security boundaries, validation, a
 
 ## Phase 8 — GKE Autopilot and real autoscaling
 
-Hammerly now has a separate, teardown-friendly GKE deployment target. Kustomize bases deploy two
+Hammerly retains a separate, teardown-friendly GKE demonstration target as historical infrastructure-as-code. Kustomize bases deploy two
 Backend replicas, two-to-ten AI replicas behind an `autoscaling/v2` CPU HPA, one Worker, persistent
 in-cluster Redis and Kafka KRaft, Prometheus, Grafana, and kube-state-metrics. Only Backend receives
-an external LoadBalancer; every other service remains cluster-internal. The Cloud Run deployment is
-unchanged.
+an external LoadBalancer; every other service remains cluster-internal. The obsolete GKE GitHub
+Actions deployment has been removed; the manifests and explicit local scripts remain available and
+are separate from the Cloud Run production path.
 
 The `demo` overlay retains real OpenAI behavior. The `loadtest` overlay selects the deterministic
 Phase 5 provider, keeping the 100/500/1,000-VU autoscaling benchmark free of OpenAI calls. Lifecycle,
@@ -155,31 +156,59 @@ Canonical Prometheus metrics include:
 
 ## CI/CD pipeline
 
-CI validates source changes; CD publishes or deploys artifacts after relevant changes reach `main`. CI never reads production secrets and does not call paid OpenAI APIs.
+CI is the primary validation gate. It never reads production secrets or calls paid OpenAI APIs. A
+successful affected-service job on a push to `main` calls the corresponding deployment workflow;
+pull requests and manual CI runs validate without deploying.
 
 ```text
-pull request / push
-  ├── UI     → npm ci → lint → type-check → build
-  ├── Core   → isolated Testcontainers tests → package
-  ├── AI     → mocked provider tests → package
-  └── Worker → embedded Kafka tests → package
+push / pull request
+        |
+        v
+       CI
+        |
+        +----------------------+----------------------+
+        |                      |                      |
+   AI changed             Core changed           UI changed
+        |                      |                      |
+    Deploy AI             Deploy Core         Deploy Frontend
+        |                      |                      |
+    Cloud Run              Cloud Run            GitHub Pages
 
-relevant push to main (after GCP_DEPLOYMENTS_ENABLED=true)
-  ├── UI     → GitHub Pages
-  ├── Core   → Docker → Artifact Registry → Cloud Run → /health
-  ├── AI     → Docker → Artifact Registry → Cloud Run → /actuator/health
-  └── Worker → Docker → Artifact Registry → runtime intentionally pending
+Worker change -> Worker CI only
+Manual Publish Worker Image -> Artifact Registry (no runtime deployment)
 ```
 
-[`ci.yml`](.github/workflows/ci.yml) exposes clear `UI CI`, `Core CI`, `AI CI`, and `Worker CI` checks for branch protection. A small first job determines affected services, so isolated changes do not rebuild unrelated applications. Workflow and shared Compose changes select the relevant checks. All Java jobs use Java 21, the service Maven wrapper, and Maven dependency caching; UI uses Node 24, `npm ci`, and npm caching.
+[`ci.yml`](.github/workflows/ci.yml) exposes `UI CI`, `Core CI`, `AI CI`, and `Worker CI` checks and
+selects only affected services. Java validation uses Java 21, each service's Maven wrapper, and Maven
+dependency caching; UI validation uses Node 24, `npm ci`, lint, type-checking, and a production build.
+Changes to shared deployment logic can select both Cloud Run services, while validation-only files
+do not cause production deployments.
 
-The existing GitHub Pages deployment remains in [`deploy-frontend.yml`](.github/workflows/deploy-frontend.yml). It now performs the same lint and type checks as CI and fails early when the public repository variable `HAMMERLY_API_URL` is absent. Only browser-safe values belong in `VITE_*`; application secrets must never be exposed through Vite.
+[`deploy-frontend.yml`](.github/workflows/deploy-frontend.yml) builds and publishes the GitHub Pages
+artifact after UI CI succeeds. A direct manual run performs lint and type-checking itself. It fails
+early when the public repository variable `HAMMERLY_API_URL` is absent. The checked-in
+`hammerly-ui/public/CNAME` continues to provide `hammerly.jqiwen.com`.
 
-Core and AI use production multi-stage, non-root images. [`deploy-core.yml`](.github/workflows/deploy-core.yml) and [`deploy-ai.yml`](.github/workflows/deploy-ai.yml) authenticate with GitHub OIDC/Google Workload Identity Federation, push both `${GITHUB_SHA}` and `latest`, deploy the immutable SHA tag to Cloud Run, and verify the existing health endpoint. Runtime secret values come directly from Google Secret Manager. `GCP_DEPLOYMENTS_ENABLED` defaults to disabled-by-absence, preventing an unconfigured repository from attempting a production deployment.
+Core and AI use production multi-stage, non-root images. [`deploy-core.yml`](.github/workflows/deploy-core.yml)
+and [`deploy-ai.yml`](.github/workflows/deploy-ai.yml) are manually runnable and are also called by CI
+after the relevant tests pass. The common [`_deploy-cloud-run.yml`](.github/workflows/_deploy-cloud-run.yml)
+authenticates with GitHub OIDC/Google Workload Identity Federation, builds and pushes both
+`${GITHUB_SHA}` and `latest`, deploys the immutable SHA tag to Cloud Run, and verifies the health
+endpoint. Its Docker build runs `mvn package -DskipTests`, so CD retains compile/package validation
+without repeating CI's complete Maven test suite. Runtime secret values come directly from Google
+Secret Manager. `GCP_DEPLOYMENTS_ENABLED` defaults to disabled-by-absence.
 
 AI's `/internal/**` endpoints require `HAMMERLY_AI_INTERNAL_TOKEN` when it is configured. Core attaches the same token to every internal AI request. Production binds the shared value from Secret Manager to both services, while local development may leave it empty. This prevents a public Cloud Run URL from treating a caller-supplied user header as trusted. Health checks remain non-AI, public, and free of provider calls.
 
-The Kafka worker is different from the request-driven services. [`deploy-worker.yml`](.github/workflows/deploy-worker.yml) tests it and publishes `hammerly-worker:${GITHUB_SHA}` to Artifact Registry, but does not deploy an ordinary scale-to-zero Cloud Run service. Production worker deployment remains blocked until a production Kafka provider, network path, and continuous runtime such as a Cloud Run worker pool or existing GKE/VM environment are selected.
+The Kafka worker is different from the request-driven services. [`deploy-worker.yml`](.github/workflows/deploy-worker.yml)
+is manual-only: its multi-stage Docker build packages the Worker and publishes
+`hammerly-worker:${GITHUB_SHA}` plus `latest` to Artifact Registry. Worker tests remain in CI, and the
+publication workflow never starts a Worker Pool or other runtime. Kafka stays disabled in production
+until its provider, network path, and continuous worker runtime are restored deliberately.
+
+The old GKE deployment and Phase 5 load-test Actions workflows have been removed from the Actions
+UI. Kubernetes/Helm examples, k6 scripts, retained results, and performance documentation remain
+available for explicit local/manual use.
 
 Complete one-time API, Artifact Registry, service-account, Workload Identity Federation, Secret Manager, GitHub variable, rollout-order, and branch-protection setup in [`docs/deployment/gcp.md`](docs/deployment/gcp.md). No long-lived GCP JSON key is required.
 
@@ -192,19 +221,22 @@ https://hammerly.jqiwen.com (GitHub Pages)
   → hammerly-backend (Cloud Run)
     → hammerly-ai (Cloud Run)
       ├── OpenAI (key from Secret Manager)
-      ├── hammerly-redis (Memorystore Basic, private default VPC)
+      ├── Upstash Redis over TCP/TLS (password from Secret Manager)
       └── Supabase PostgreSQL + pgvector (when RAG is enabled)
 ```
 
-In full demo mode, AI reaches Memorystore through Cloud Run Direct VPC egress on the `default` network and `us-west1` `default` subnet. Redis AUTH is stored in Secret Manager; its host and port are non-secret settings. In demo-off mode, Redis and Kafka are disabled and AI uses bounded, TTL-aware process-local state, so chat remains available while the worker is scaled to zero and the Kafka VM is stopped. See [`docs/deployment/gcp.md`](docs/deployment/gcp.md) for the idempotent ON/OFF commands.
+Production AI uses Upstash's normal Redis TCP endpoint with TLS. Host, port, and SSL mode are
+non-secret GitHub variables; only the Redis password is injected from the Google Secret Manager
+secret `hammerly-redis-password`. The Upstash REST token is not used. Kafka remains disabled and no
+production Worker runtime is started by these workflows.
 
 ### Local development versus production
 
 | Concern | Local development | Production |
 | --- | --- | --- |
 | PostgreSQL | Developer Supabase URL or test container | Secret Manager `SUPABASE_DB_URL` |
-| Redis | Docker Compose on `localhost:6379`, optional per flag | Memorystore `hammerly-redis` when demo mode is ON; process-local fallback when OFF |
-| Kafka | Docker Compose on `localhost:9092`, optional per flag | Kafka VM and Cloud Run worker pool only while demo mode is ON |
+| Redis | Docker Compose on `localhost:6379`, optional per flag | Upstash Redis over TCP/TLS; password from Secret Manager |
+| Kafka | Docker Compose on `localhost:9092`, optional per flag | Disabled for now; Worker image/runtime support retained |
 | OpenAI | Ignored local file or environment variable | Secret Manager `OPENAI_API_KEY` |
 | Core-to-AI trust | Token optional on localhost | Secret Manager shared internal token |
 | GCP authentication | Not required | GitHub OIDC/WIF, no service-account key file |
@@ -217,7 +249,7 @@ when running Java processes directly. Important Phase 4/5 variables are:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HAMMERLY_REDIS_ENABLED` | `true` locally, `false` production default | Selects Redis or bounded process-local AI state |
+| `HAMMERLY_REDIS_ENABLED` | `true` locally and in current production | Selects Redis or bounded process-local AI state |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker address used by AI and worker |
 | `HAMMERLY_KAFKA_ENABLED` | `true` locally, `false` production default | Enables best-effort AI event publication |
 | `HAMMERLY_WORKER_GROUP_ID` | `hammerly-worker-v1` | Durable worker consumer group |
@@ -393,10 +425,10 @@ token/character counts so token-limit truncation is diagnosable without recordin
 retrieved text. Core writes a matching `core_ai_latency` summary with request-to-AI-start, first AI byte,
 and total browser-facing stream time. These fields are intended for cold-versus-warm comparisons.
 
-When Memorystore is running and reachable, set `HAMMERLY_REDIS_ENABLED=true` so conversation
+With the production Upstash endpoint reachable, keep `HAMMERLY_REDIS_ENABLED=true` so conversation
 summaries, versioned RAG retrievals, and explicitly standalone grounded FAQ answers survive across
-Cloud Run requests and instances. Redis failures remain fail-open; keep the variable `false` for the
-cost-saving/demo-off profile.
+Cloud Run requests and instances. Redis failures remain fail-open, and the connection uses normal
+Redis TCP/TLS rather than the Upstash REST API.
 
 The GKE demo is intentionally separate from the Cloud Run production path. Prometheus and Grafana
 are private ClusterIP services reached through `kubectl port-forward`; in-cluster Redis and Kafka are

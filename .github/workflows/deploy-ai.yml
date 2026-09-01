@@ -1,12 +1,7 @@
 name: Deploy AI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "hammerly-ai/**"
-      - ".github/workflows/deploy-ai.yml"
-      - ".github/workflows/_deploy-cloud-run.yml"
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
@@ -41,6 +36,7 @@ jobs:
           AI_REDIS_HOST: ${{ vars.AI_REDIS_HOST }}
           AI_REDIS_PORT: ${{ vars.AI_REDIS_PORT }}
           AI_REDIS_SSL: ${{ vars.AI_REDIS_SSL }}
+          HAMMERLY_REDIS_ENABLED: ${{ vars.HAMMERLY_REDIS_ENABLED }}
           AI_VPC_NETWORK: ${{ vars.AI_VPC_NETWORK }}
           AI_VPC_SUBNET: ${{ vars.AI_VPC_SUBNET }}
         run: |
@@ -57,13 +53,17 @@ jobs:
             GCP_DEPLOY_SERVICE_ACCOUNT GCP_ARTIFACT_REPOSITORY \
             AI_CLOUD_RUN_SERVICE AI_RUNTIME_SERVICE_ACCOUNT \
             AI_OPENAI_SECRET AI_REDIS_PASSWORD_SECRET AI_INTERNAL_TOKEN_SECRET AI_DB_SECRET \
-            AI_REDIS_HOST AI_REDIS_PORT AI_REDIS_SSL \
+            AI_REDIS_HOST AI_REDIS_PORT AI_REDIS_SSL HAMMERLY_REDIS_ENABLED \
             AI_VPC_NETWORK AI_VPC_SUBNET; do
             if [[ -z "${!variable_name:-}" ]]; then
               echo "::error::Missing required GitHub variable: ${variable_name}"
               missing=1
             fi
           done
+          if [[ "${AI_REDIS_SSL}" != "true" || "${HAMMERLY_REDIS_ENABLED}" != "true" ]]; then
+            echo "::error::Production AI requires Upstash Redis over TLS (AI_REDIS_SSL=true and HAMMERLY_REDIS_ENABLED=true)."
+            missing=1
+          fi
           [[ "${missing}" == "0" ]]
           echo "enabled=true" >> "${GITHUB_OUTPUT}"
 
@@ -107,7 +107,7 @@ jobs:
         REDIS_HOST=${{ vars.AI_REDIS_HOST }}
         REDIS_PORT=${{ vars.AI_REDIS_PORT }}
         REDIS_SSL=${{ vars.AI_REDIS_SSL }}
-        HAMMERLY_REDIS_ENABLED=${{ vars.HAMMERLY_REDIS_ENABLED || 'false' }}
+        HAMMERLY_REDIS_ENABLED=${{ vars.HAMMERLY_REDIS_ENABLED }}
         HAMMERLY_KAFKA_ENABLED=${{ vars.HAMMERLY_KAFKA_ENABLED || 'false' }}
         HAMMERLY_RAG_ENABLED=${{ vars.HAMMERLY_RAG_ENABLED || 'true' }}
         HAMMERLY_RAG_TOP_K=${{ vars.HAMMERLY_RAG_TOP_K || '3' }}

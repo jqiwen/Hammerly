@@ -52,7 +52,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Test, publish, and deploy
+    name: Publish and deploy
     runs-on: ubuntu-latest
     environment: production
     defaults:
@@ -61,32 +61,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
-
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: maven
-          cache-dependency-path: ${{ inputs.service-directory }}/pom.xml
-
-      - name: Make Maven wrapper executable
-        run: chmod +x mvnw
-
-      - name: Test
-        env:
-          OPENAI_API_KEY: ""
-          HAMMERLY_REDIS_ENABLED: "false"
-          HAMMERLY_KAFKA_ENABLED: "false"
-          HAMMERLY_RAG_ENABLED: "false"
-          HAMMERLY_AI_EMBEDDING_PROVIDER: deterministic
-          SUPABASE_DB_URL: jdbc:postgresql://127.0.0.1:1/ci-unused?sslmode=disable
-          JWT_SECRET: ci-only-secret-that-is-never-used-in-production
-          HAMMERLY_SEED_ENABLED: "false"
-        run: ./mvnw -B -ntp test
-
-      - name: Package
-        run: ./mvnw -B -ntp package -DskipTests
 
       - name: Authenticate to Google Cloud with OIDC
         uses: google-github-actions/auth@v3
@@ -114,6 +88,9 @@ jobs:
           IMAGE_NAME: ${{ inputs.image-name }}
         run: |
           set -euo pipefail
+          # Automatic calls arrive only after the affected CI test job passes.
+          # The multi-stage Dockerfile still runs Maven package with tests skipped,
+          # so manual deployments also fail before push on compile/package errors.
           image_repository="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/${IMAGE_NAME}"
           immutable_image="${image_repository}:${GITHUB_SHA}"
           docker build \

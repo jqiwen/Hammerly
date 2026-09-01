@@ -79,6 +79,10 @@ $env:HAMMERLY_AI_URL='http://localhost:5001'
 
 ## Run
 
+The completed Phase 5 `workflow_dispatch` action has been removed from the GitHub Actions UI. The
+suite remains intentionally runnable from this directory with the scripts below, and all historical
+results and methodology remain checked in.
+
 The smoke schedule ramps to 10 VUs. The full default schedule has a 30-second warm-up, 15-second
 ramps, two-minute holds at 100, 500, and 1,000 VUs, and a 30-second cooldown. Think time defaults to
 10 seconds with ±25% jitter.
