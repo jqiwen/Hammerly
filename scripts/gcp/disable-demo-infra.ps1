@@ -1,13 +1,14 @@
-[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "Medium")]
+[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "High")]
 param(
     [string]$ProjectId = "hammerly-506214",
     [string]$Region = "us-west1",
+    [string]$CoreService = "hammerly-backend",
     [string]$AiService = "hammerly-ai",
     [string]$WorkerPool = "hammerly-worker",
     [string]$KafkaVm = "hammerly-kafka",
-    [string]$RedisInstance = "hammerly-redis",
-    [string]$InternalTokenSecret = "hammerly-ai-internal-token",
-    [switch]$DeleteRedis
+    [string]$GitHubRepository = "jqiwen/Hammerly",
+    [switch]$SkipGitHubVariables,
+    [switch]$DeleteKafka
 )
 
 Set-StrictMode -Version Latest
@@ -16,41 +17,42 @@ $ErrorActionPreference = "Stop"
 function Invoke-Gcloud {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    $output = @(& gcloud @Arguments 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        $message = ($output | ForEach-Object { "$_" }) -join [Environment]::NewLine
-        throw "gcloud command failed: gcloud $($Arguments -join ' ')`n$message"
+    $previousWhatIf = $WhatIfPreference
+    try {
+        $WhatIfPreference = $false
+        $output = @(& gcloud @Arguments 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            $message = ($output | ForEach-Object { "$_" }) -join [Environment]::NewLine
+            throw "gcloud command failed: gcloud $($Arguments -join ' ')`n$message"
+        }
+        return (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
+    } finally {
+        $WhatIfPreference = $previousWhatIf
     }
-    return (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
 }
 
 function Test-GcloudResource {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    & gcloud @Arguments *> $null
-    return $LASTEXITCODE -eq 0
-}
-
-function Invoke-GcloudSensitive {
-    param([Parameter(Mandatory = $true)][string[]]$Arguments)
-
-    $output = @(& gcloud @Arguments 2>$null)
-    if ($LASTEXITCODE -ne 0) {
-        throw "A sensitive gcloud read failed: gcloud $($Arguments -join ' ')"
+    $previousWhatIf = $WhatIfPreference
+    try {
+        $WhatIfPreference = $false
+        & gcloud @Arguments *> $null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $WhatIfPreference = $previousWhatIf
     }
-    return (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
 }
 
 function Get-KafkaVmDetails {
     $json = Invoke-Gcloud -Arguments @(
         "compute", "instances", "list",
         "--project=$ProjectId",
-        "--filter=name=$KafkaVm",
-        "--format=json(name,zone,status,networkInterfaces)"
+        "--format=json(name,zone,status,machineType,disks)"
     )
     $matches = @($json | ConvertFrom-Json | Where-Object { $_.name -eq $KafkaVm })
     if ($matches.Count -gt 1) {
-        throw "More than one Compute Engine VM is named '$KafkaVm'. Specify an unambiguous VM."
+        throw "More than one Compute Engine VM is named '$KafkaVm'."
     }
     if ($matches.Count -eq 0) {
         return $null
@@ -60,162 +62,97 @@ function Get-KafkaVmDetails {
         Name = $item.name
         Zone = ($item.zone -split "/")[-1]
         Status = $item.status
+        MachineType = ($item.machineType -split "/")[-1]
     }
 }
 
-function Get-AiUrl {
-    $url = Invoke-Gcloud -Arguments @(
-        "run", "services", "describe", $AiService,
-        "--project=$ProjectId", "--region=$Region",
-        "--format=value(status.url)"
-    )
-    if ([string]::IsNullOrWhiteSpace($url)) {
-        throw "Cloud Run service '$AiService' has no URL."
-    }
-    return $url.TrimEnd("/")
-}
-
-function Get-AiHeaders {
-    $token = Invoke-GcloudSensitive -Arguments @(
-        "secrets", "versions", "access", "latest",
-        "--secret=$InternalTokenSecret", "--project=$ProjectId"
-    )
-    $headers = @{ "X-Hammerly-User-Id" = "demo-infra-verifier" }
-    if (-not [string]::IsNullOrWhiteSpace($token)) {
-        $headers["X-Hammerly-Internal-Token"] = $token
-    }
-    return $headers
-}
-
-function Wait-AiHealth {
-    param([Parameter(Mandatory = $true)][string]$AiUrl)
-
-    $lastError = "no response"
-    for ($attempt = 1; $attempt -le 18; $attempt++) {
-        try {
-            $health = Invoke-RestMethod -Method Get -Uri "$AiUrl/actuator/health" -TimeoutSec 15
-            if ($health.status -eq "UP") {
-                return
-            }
-            $lastError = "status was '$($health.status)'"
-        } catch {
-            $lastError = $_.Exception.Message
-        }
-        Start-Sleep -Seconds 5
-    }
-    throw "AI health verification failed: $lastError"
-}
-
-function Confirm-AiDemoOff {
+function Set-GitHubVariable {
     param(
-        [Parameter(Mandatory = $true)][string]$AiUrl,
-        [Parameter(Mandatory = $true)][hashtable]$Headers
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Value
     )
 
-    $status = Invoke-RestMethod -Method Get -Uri "$AiUrl/internal/ai/status" `
-        -Headers $Headers -TimeoutSec 15
-    if ($null -eq $status.redisEnabled -or $null -eq $status.kafkaEnabled) {
-        throw "The deployed AI revision does not report demo infrastructure mode. Deploy this change before deleting Redis."
-    }
-    if ([bool]$status.redisEnabled -or [bool]$status.kafkaEnabled) {
-        throw "AI did not enter demo-off mode (redisEnabled=$($status.redisEnabled), kafkaEnabled=$($status.kafkaEnabled))."
-    }
-
-    $body = @{
-        message = "Reply briefly to confirm Hammerly AI chat is available."
-        history = @()
-        conversationId = [guid]::NewGuid().ToString()
-    } | ConvertTo-Json -Compress
-    $chat = Invoke-RestMethod -Method Post -Uri "$AiUrl/internal/ai/chat" `
-        -Headers $Headers -ContentType "application/json" -Body $body -TimeoutSec 90
-    if ($null -eq $chat -or [string]::IsNullOrWhiteSpace([string]$chat.answer)) {
-        throw "AI chat verification returned no answer. Redis will not be deleted."
+    $output = @(& gh variable set $Name --repo $GitHubRepository --body $Value 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not update GitHub repository variable '$Name': $($output -join [Environment]::NewLine)"
     }
 }
 
 if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
     throw "gcloud is required and must be available on PATH."
 }
-
-Invoke-Gcloud -Arguments @("projects", "describe", $ProjectId, "--format=value(projectId)") | Out-Null
-if (-not (Test-GcloudResource -Arguments @(
-    "run", "services", "describe", $AiService,
-    "--project=$ProjectId", "--region=$Region"
-))) {
-    throw "Cloud Run AI service '$AiService' was not found in $ProjectId/$Region."
+if (-not $SkipGitHubVariables -and -not (Get-Command gh -ErrorAction SilentlyContinue)) {
+    throw "gh is required to persist the disabled Kafka feature flag; use -SkipGitHubVariables only when intentionally managing it separately."
 }
 
-if ($PSCmdlet.ShouldProcess(
-    "Cloud Run service $AiService",
-    "set HAMMERLY_REDIS_ENABLED=false and HAMMERLY_KAFKA_ENABLED=false"
-)) {
+Invoke-Gcloud -Arguments @("projects", "describe", $ProjectId, "--format=value(projectId)") | Out-Null
+$workerExists = Test-GcloudResource -Arguments @(
+    "run", "worker-pools", "describe", $WorkerPool,
+    "--project=$ProjectId", "--region=$Region"
+)
+$kafka = Get-KafkaVmDetails
+
+Write-Host "Disable plan (Upstash, Supabase, Core, and AI resources are retained):"
+Write-Host "  Scale worker pool '$WorkerPool' to 0 if it exists: $workerExists"
+Write-Host "  Set HAMMERLY_KAFKA_ENABLED=false on '$CoreService' and '$AiService' and in GitHub variables."
+if ($null -eq $kafka) {
+    Write-Host "  Kafka VM '$KafkaVm' does not exist."
+} elseif ($DeleteKafka) {
+    Write-Warning "  DELETE Kafka VM '$KafkaVm' in $($kafka.Zone), including its auto-delete boot disk and Kafka data."
+} else {
+    Write-Host "  Stop Kafka VM '$KafkaVm' in $($kafka.Zone); keep the VM and disk."
+}
+
+$action = if ($DeleteKafka) {
+    "disable Kafka and permanently delete the Kafka VM and its auto-delete boot disk"
+} else {
+    "disable Kafka, scale the worker to zero, and stop the Kafka VM while retaining its disk"
+}
+if (-not $PSCmdlet.ShouldProcess("$ProjectId/$Region", $action)) {
+    return
+}
+
+if ($workerExists) {
     Invoke-Gcloud -Arguments @(
-        "run", "services", "update", $AiService,
-        "--project=$ProjectId", "--region=$Region",
-        "--update-env-vars=HAMMERLY_REDIS_ENABLED=false,HAMMERLY_KAFKA_ENABLED=false",
-        "--quiet"
+        "run", "worker-pools", "update", $WorkerPool,
+        "--project=$ProjectId", "--region=$Region", "--instances=0", "--quiet"
     ) | Write-Host
 }
 
-if (Test-GcloudResource -Arguments @(
-    "run", "worker-pools", "describe", $WorkerPool,
-    "--project=$ProjectId", "--region=$Region"
-)) {
-    if ($PSCmdlet.ShouldProcess("Cloud Run worker pool $WorkerPool", "scale to zero instances")) {
+foreach ($service in @($CoreService, $AiService)) {
+    if (Test-GcloudResource -Arguments @(
+        "run", "services", "describe", $service,
+        "--project=$ProjectId", "--region=$Region"
+    )) {
         Invoke-Gcloud -Arguments @(
-            "run", "worker-pools", "update", $WorkerPool,
-            "--project=$ProjectId", "--region=$Region", "--instances=0", "--quiet"
+            "run", "services", "update", $service,
+            "--project=$ProjectId", "--region=$Region",
+            "--update-env-vars=HAMMERLY_KAFKA_ENABLED=false", "--quiet"
         ) | Write-Host
     }
-} else {
-    Write-Host "Worker pool '$WorkerPool' is absent; nothing to disable."
 }
 
-$kafka = Get-KafkaVmDetails
-if ($null -eq $kafka) {
-    Write-Host "Kafka VM '$KafkaVm' is absent; nothing to stop."
-} elseif ($kafka.Status -eq "TERMINATED") {
-    Write-Host "Kafka VM '$KafkaVm' is already stopped."
-} elseif ($PSCmdlet.ShouldProcess("Compute Engine VM $KafkaVm", "stop")) {
+if (-not $SkipGitHubVariables) {
+    Set-GitHubVariable -Name "HAMMERLY_KAFKA_ENABLED" -Value "false"
+}
+
+if ($null -ne $kafka -and $kafka.Status -ne "TERMINATED") {
     Invoke-Gcloud -Arguments @(
         "compute", "instances", "stop", $KafkaVm,
         "--project=$ProjectId", "--zone=$($kafka.Zone)", "--quiet"
     ) | Write-Host
 }
 
-if ($WhatIfPreference) {
-    Write-Host "WhatIf complete. Live verification and Redis deletion were intentionally skipped."
-    return
-}
-
-$aiUrl = Get-AiUrl
-$headers = Get-AiHeaders
-Wait-AiHealth -AiUrl $aiUrl
-Confirm-AiDemoOff -AiUrl $aiUrl -Headers $headers
-Write-Host "Verified AI health and chat with Redis/Kafka explicitly disabled."
-
-$redisExists = Test-GcloudResource -Arguments @(
-    "redis", "instances", "describe", $RedisInstance,
-    "--project=$ProjectId", "--region=$Region"
-)
-if (-not $DeleteRedis) {
-    if ($redisExists) {
-        Write-Host "Redis '$RedisInstance' is still present. Re-run with -DeleteRedis to remove it after this safety gate."
-    } else {
-        Write-Host "Redis '$RedisInstance' is already absent."
-    }
-    return
-}
-
-if (-not $redisExists) {
-    Write-Host "Redis '$RedisInstance' is already absent; nothing to delete."
-} elseif ($PSCmdlet.ShouldProcess(
-    "Memorystore instance $RedisInstance in $ProjectId/$Region",
-    "permanently delete after successful Redis-disabled health and chat verification"
-)) {
+if ($DeleteKafka -and $null -ne $kafka) {
     Invoke-Gcloud -Arguments @(
-        "redis", "instances", "delete", $RedisInstance,
-        "--project=$ProjectId", "--region=$Region", "--quiet"
+        "compute", "instances", "delete", $KafkaVm,
+        "--project=$ProjectId", "--zone=$($kafka.Zone)", "--delete-disks=all", "--quiet"
     ) | Write-Host
-    Write-Host "Deleted Redis '$RedisInstance'. Its data is not recoverable unless separately exported."
+    Write-Warning "Kafka VM '$KafkaVm' and its boot disk were deleted. Kafka data is not recoverable unless separately backed up."
 }
+
+Write-Host "Kafka demo infrastructure is OFF."
+Write-Host "Worker pool: zero instances (or absent)"
+Write-Host $(if ($DeleteKafka) { "Kafka VM: deleted when present" } else { "Kafka VM: stopped when present; disk retained" })
+Write-Host "Upstash Redis: untouched"
+Write-Host "Supabase and Cloud Run services: retained"

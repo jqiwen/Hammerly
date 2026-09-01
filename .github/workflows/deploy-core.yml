@@ -37,6 +37,8 @@ jobs:
           AI_VPC_SUBNET: ${{ vars.AI_VPC_SUBNET }}
           HAMMERLY_FRONTEND_URL: ${{ vars.HAMMERLY_FRONTEND_URL }}
           HAMMERLY_AI_URL: ${{ vars.HAMMERLY_AI_URL }}
+          HAMMERLY_KAFKA_ENABLED: ${{ vars.HAMMERLY_KAFKA_ENABLED || 'false' }}
+          KAFKA_BOOTSTRAP_SERVERS: ${{ vars.KAFKA_BOOTSTRAP_SERVERS }}
         run: |
           set -euo pipefail
           if [[ "${DEPLOYMENTS_ENABLED}" != "true" ]]; then
@@ -58,6 +60,17 @@ jobs:
               missing=1
             fi
           done
+          if [[ "${HAMMERLY_KAFKA_ENABLED}" != "true" && "${HAMMERLY_KAFKA_ENABLED}" != "false" ]]; then
+            echo "::error::HAMMERLY_KAFKA_ENABLED must be true or false."
+            missing=1
+          fi
+          if [[ "${HAMMERLY_KAFKA_ENABLED}" == "true" && ( \
+                -z "${KAFKA_BOOTSTRAP_SERVERS}" || \
+                "${KAFKA_BOOTSTRAP_SERVERS}" == *"not-configured.invalid"* || \
+                "${KAFKA_BOOTSTRAP_SERVERS}" == *"disabled.invalid"* ) ]]; then
+            echo "::error::Kafka cannot be enabled with an empty or disabled KAFKA_BOOTSTRAP_SERVERS value."
+            missing=1
+          fi
           [[ "${missing}" == "0" ]]
           echo "enabled=true" >> "${GITHUB_OUTPUT}"
 

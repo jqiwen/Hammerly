@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${DEPLOYMENTS_ENABLED}" != "true" ]]; then
-            echo "::notice::Worker image publication is prepared but disabled. Runtime deployment remains intentionally blocked until production Kafka and a continuous worker platform are selected."
+            echo "::notice::Worker image publication is prepared but disabled. Set GCP_DEPLOYMENTS_ENABLED=true after completing the documented GCP setup."
             echo "enabled=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi

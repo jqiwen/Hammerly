@@ -3,11 +3,26 @@
 Production deployments target project `hammerly-506214` in `us-west1`. The live services are
 `hammerly-backend` and `hammerly-ai` on Cloud Run, `hammerly.jqiwen.com` on GitHub Pages, Upstash
 Redis over TCP/TLS, and Supabase PostgreSQL/pgvector. Artifact Registry repository `hammerly` also
-stores the manually published `hammerly-worker` image.
+stores the manually published `hammerly-worker` image. The optional asynchronous tier is a private
+single-node Kafka KRaft VM feeding a Cloud Run Worker Pool; its explicit ON/OFF scripts keep it
+separate from the request-driven deployment workflows and from the Upstash lifecycle.
 
-Kafka is disabled in production for now, and no workflow starts a Worker Pool, VM, or broker. The
-Kafka/Worker code and the historical demo infrastructure scripts remain available for a future
-explicit reactivation, but they are not part of the current production CI/CD path.
+```text
+React / GitHub Pages
+        |
+Cloud Run Core
+        |
+Cloud Run AI -------- OpenAI
+   |            \
+Upstash Redis   Supabase / pgvector
+
+Asynchronous path only:
+Core / AI -> private Compute Engine Kafka (KRaft) -> Cloud Run Worker Pool
+```
+
+Kafka is never inserted into the Core-to-AI SSE response path. AI events are best-effort after a
+completed response, while Core knowledge jobs remain durable in the PostgreSQL transactional outbox
+until Kafka returns.
 
 Production secret values stay in Google Secret Manager. GitHub stores only non-secret resource identifiers and secret **names**. GitHub authenticates to Google Cloud with short-lived OIDC credentials through Workload Identity Federation; do not create or upload a service-account JSON key.
 
@@ -248,7 +263,7 @@ HAMMERLY_API_URL
 
 HAMMERLY_REDIS_ENABLED=true
 HAMMERLY_KAFKA_ENABLED=false
-KAFKA_BOOTSTRAP_SERVERS
+KAFKA_BOOTSTRAP_SERVERS=kafka-disabled.invalid:9092
 ```
 
 `AI_DB_SECRET` may be omitted when `CORE_DB_SECRET` already names the shared
@@ -323,71 +338,139 @@ set `SUPABASE_DB_URL` in the current shell and run:
 The status check prints document state, chunk count, citable section labels, knowledge-base version,
 and aggregate unpublished outbox status. It never prints document content or database credentials.
 
-## 10. Historical demo infrastructure scripts
+## 10. Kafka demo infrastructure lifecycle
 
-These scripts are retained as deployment examples only. They are not called by GitHub Actions and
-are not the current Upstash-based production architecture. Do not run them against the live project
-unless deliberately recreating the old Kafka/Memorystore demo in a separately reviewed task. They
-pass `--project=hammerly-506214` and `--region=us-west1` by default, so always preview with `-WhatIf`
-and override the target when using an isolated demo project.
+The Kafka lifecycle is deliberately manual. It does not create a GitHub Actions workflow, change the
+existing CI-to-CD gates, or couple Redis to Kafka. `enable-demo-infra.ps1` reads the deployed AI
+configuration only to verify that the existing Upstash host, port `6379`, TLS flag, and
+`hammerly-redis-password` secret reference are present. It never reads the Redis password and never
+creates, updates, stops, or deletes a Memorystore or Upstash resource.
 
-Turn expensive infrastructure OFF without deleting Redis:
+### Billable resources and preview
+
+The defaults are:
+
+- Compute Engine VM `hammerly-kafka` in `us-west1-b`: `e2-small` (2 shared vCPU, 2 GiB RAM), 20 GB
+  `pd-standard` boot disk, Ubuntu 24.04, Apache Kafka 3.9.1, one combined KRaft broker/controller;
+- Cloud Run Worker Pool `hammerly-worker`: one continuously active 1 vCPU / 1 GiB instance;
+- no ZooKeeper, Cloud NAT, Memorystore, GKE, public Kafka address, or Cloud Run minimum-instance
+  change.
+
+The machine type can be overridden with `$env:KAFKA_MACHINE_TYPE` or `-KafkaMachineType`; the disk
+size/type and worker count also have explicit parameters. Always run the read-only preview first:
+
+```powershell
+.\scripts\gcp\enable-demo-infra.ps1 -WhatIf
+```
+
+The script prints the exact VM, disk, and worker-pool size before PowerShell asks for confirmation.
+Creating the VM or scaling the worker above zero is billable. At current
+[Compute Engine list prices](https://cloud.google.com/products/compute/pricing/general-purpose),
+`e2-small` is about `$0.01675/hour` (roughly `$12.23` for a 730-hour month before
+sustained-use/free-tier effects), and the
+[disk price](https://cloud.google.com/compute/disks-image-pricing) for a 20 GB US standard persistent
+disk is up to about `$0.80/month` when the account-level free disk allowance is already consumed.
+Google's [Cloud Run pricing example](https://cloud.google.com/run/pricing) currently illustrates one
+always-on 1 vCPU / 512 MiB Worker Pool at about `$11.61/month` after its free tier (`$16.83` without
+it); Hammerly allocates 1 GiB, so budget somewhat more and use the pricing calculator for the billing
+account's exact result. Stopping Kafka ends VM CPU charges but retains disk charges. Scaling the
+worker to zero ends worker compute charges.
+
+### Enable Kafka
+
+Publish a current worker image with **Publish Worker Image**, preview, then enable:
+
+```powershell
+.\scripts\gcp\enable-demo-infra.ps1 -WhatIf
+.\scripts\gcp\enable-demo-infra.ps1
+```
+
+The idempotent ON workflow:
+
+1. verifies the existing Upstash/TLS configuration and required Secret Manager containers without
+   reading or changing their values;
+2. creates three target-tagged firewall rules: allow TCP `9092` only from the regional subnet CIDR,
+   deny TCP `9092` from every other source (needed because the default VPC has a broader internal
+   allow rule), and allow IAP SSH for private administration;
+3. creates `hammerly-kafka` only when absent, otherwise starts it when stopped;
+4. installs Kafka once, formats a single-node KRaft log only when unformatted, writes a private-IP
+   `advertised.listeners`, and runs Kafka under an auto-restarting `systemd` unit;
+5. creates or verifies `hammerly.ai.events.v1`, `hammerly.ai.jobs.v1`, and both `.DLT` topics with
+   three partitions and replication factor `1`;
+6. removes the VM's temporary first-boot external IPv4 address after broker health succeeds;
+7. writes the real private `<ip>:9092` to the `KAFKA_BOOTSTRAP_SERVERS` GitHub variable, sets
+   `HAMMERLY_KAFKA_ENABLED=true`, and updates only those Kafka fields plus existing Direct VPC egress
+   on Core and AI; it does not alter Cloud Run minimum instances or AI/Redis/RAG behavior;
+8. creates or reuses `hammerly-worker-runtime`, grants it accessor rights only to the existing Redis,
+   Supabase URL, and OpenAI secrets, and creates/updates the private Worker Pool from
+   `hammerly-worker:latest`;
+9. verifies broker metadata, the topic list, Worker Pool scaling, active consumer group
+   `hammerly-worker-v1`, and consumption of one non-business smoke event; unless
+   `-SkipApplicationSmokeTest` is specified, it also verifies a real AI response followed by the two
+   asynchronous `message.created` events.
+
+The smoke event contains no customer or auction data and only creates the worker's normal temporary
+Redis idempotency marker. The AI smoke uses the existing internal token without printing it. Core's
+durable producer is validated by its compiled transactional outbox tests and live configuration;
+the lifecycle script intentionally does not insert a fake production knowledge document or outbox
+row.
+
+### Disable or delete Kafka
+
+Disable the worker and broker while retaining the VM and disk:
 
 ```powershell
 .\scripts\gcp\disable-demo-infra.ps1
 ```
 
-The OFF workflow performs these operations in order:
+The OFF workflow first scales the Worker Pool to zero, then sets only
+`HAMMERLY_KAFKA_ENABLED=false` on Core, AI, and the GitHub repository variable, and finally stops the
+Kafka VM. `KAFKA_BOOTSTRAP_SERVERS` is retained for a faster restart. Upstash, Supabase, the worker
+image, both Cloud Run services, their min-instance settings, and Kafka disk data are untouched.
 
-1. Sets `HAMMERLY_REDIS_ENABLED=false` and `HAMMERLY_KAFKA_ENABLED=false` on `hammerly-ai`.
-2. Scales the `hammerly-worker` Cloud Run worker pool to zero when it exists.
-3. Stops the `hammerly-kafka` VM when it exists.
-4. Waits for AI health, verifies the deployed status endpoint explicitly reports both flags disabled, and makes a real internal chat request.
-5. Leaves Memorystore intact by default.
-
-Redis deletion is a separate explicit option:
+Permanent Kafka deletion is separate and explicit:
 
 ```powershell
-.\scripts\gcp\disable-demo-infra.ps1 -DeleteRedis
+.\scripts\gcp\disable-demo-infra.ps1 -DeleteKafka
 ```
 
-The script reaches the delete command only after the live Redis-disabled health and chat checks pass. If the deployed AI revision is too old to report its mode, provider chat fails, or any verification fails, Redis is not deleted. Deletion permanently removes the instance data. Recreating the same Memorystore name can produce a different private IP; the ON script always discovers and reapplies the new address.
+`-DeleteKafka` deletes the VM and its auto-delete boot disk after the safe shutdown sequence. Kafka
+data is not recoverable unless separately backed up. It still does not touch Upstash, Supabase, Core,
+AI, or the Worker Pool definition.
 
-Turn full demo infrastructure ON:
+### Inspect status
 
 ```powershell
-.\scripts\gcp\enable-demo-infra.ps1
+gcloud compute instances describe hammerly-kafka `
+  --project=hammerly-506214 --zone=us-west1-b
+
+gcloud compute ssh hammerly-kafka `
+  --project=hammerly-506214 --zone=us-west1-b --tunnel-through-iap `
+  --command="sudo systemctl status kafka --no-pager"
+
+gcloud compute ssh hammerly-kafka `
+  --project=hammerly-506214 --zone=us-west1-b --tunnel-through-iap `
+  --command="sudo /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list"
+
+gcloud compute ssh hammerly-kafka `
+  --project=hammerly-506214 --zone=us-west1-b --tunnel-through-iap `
+  --command="sudo /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --describe --group hammerly-worker-v1"
+
+gcloud run worker-pools describe hammerly-worker `
+  --project=hammerly-506214 --region=us-west1
 ```
-
-The ON workflow:
-
-- creates `hammerly-redis` as Basic 1 GiB Redis 7 with AUTH if it is missing, or reuses it when present;
-- stores the current AUTH value as a Secret Manager version without printing or committing it;
-- starts the existing `hammerly-kafka` VM and discovers its private IP;
-- updates AI with the discovered private Redis/Kafka addresses and enables both flags;
-- creates or updates the `hammerly-worker` Cloud Run worker pool from `hammerly-worker:latest`, grants its dedicated runtime identity access only to the Redis password secret, and sets one active instance;
-- verifies Redis and Kafka VM state, worker scaling, AI health, the enabled-mode status, and a real AI chat.
-
-The Kafka VM must already exist and its broker must listen on and advertise its stable private address on port `9092`; the script fails instead of inventing a broker configuration. The worker image must already have been published by `deploy-worker.yml`. Override resource names, the worker image, or worker count with script parameters when the live environment differs.
-
-Current Cloud Run deployments use the GitHub variables on every new AI revision and require
-`HAMMERLY_REDIS_ENABLED=true` with TLS for Upstash. `HAMMERLY_KAFKA_ENABLED` remains `false` unless
-an operator explicitly restores the broker and Worker runtime in a separate change. The legacy
-ON/OFF scripts do not define current production state.
 
 ## 11. Worker runtime
 
-`deploy-worker.yml` is manual-only and publishes `hammerly-worker:<git-sha>` and `latest` to Artifact Registry. The multi-stage image build packages the application; the full embedded-Kafka suite runs in CI. The workflow intentionally does not start a runtime. The historical `enable-demo-infra.ps1` can create or update a continuous Cloud Run worker pool only when an operator explicitly invokes it; `disable-demo-infra.ps1` returns that legacy demo runtime to zero instances.
+`deploy-worker.yml` remains manual-only and publishes `hammerly-worker:<git-sha>` and `latest` to
+Artifact Registry; it never deploys a runtime. The full embedded-Kafka suite remains in CI. The ON
+script deploys the image as a Cloud Run Worker Pool because a Kafka consumer is a continuous
+pull-based process, not a public HTTP service. Direct VPC egress attaches the worker to
+`default/default`, and instances can be set to zero without deleting the pool.
 
-Before enabling the demo worker runtime, provision:
-
-- a production Kafka provider and authentication mechanism;
-- Redis reachable from the chosen runtime;
-- networking and secret bindings;
-- the `hammerly-kafka` VM with a private listener reachable from the `default` VPC;
-- an explicit minimum capacity and shutdown/rebalance test.
-
-An ordinary request-driven Cloud Run service is not used for the Kafka consumer. Cloud Run worker pools support continuous pull-based processing and can be explicitly set to zero instances in demo-off mode. Do not enable `HAMMERLY_KAFKA_ENABLED` in AI until the broker and worker pool are ready.
+The Worker Pool receives `KAFKA_BOOTSTRAP_SERVERS`, the existing topic/group variables, Upstash over
+TLS, the Supabase JDBC URL secret, and the OpenAI secret for production embeddings. No password or
+long-lived service-account key is written to source, YAML, command output, or GitHub variables.
 
 ## 12. Branch protection
 

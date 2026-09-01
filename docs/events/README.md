@@ -7,13 +7,15 @@ Phase 4 uses a small topic set and versioned JSON envelopes. AI and worker maint
 | Topic | Kind | Producer | Phase 4 consumer | Purpose |
 | --- | --- | --- | --- | --- |
 | `hammerly.ai.events.v1` | fact | `hammerly-ai` | `hammerly-worker-v1` | Successful AI conversation facts (`message.created`) |
-| `hammerly.ai.jobs.v1` | command/job | `hammerly-ai` | `hammerly-worker-v1` | Background summary work; reserves embedding jobs |
+| `hammerly.ai.jobs.v1` | command/job | `hammerly-ai`, `hammerly-core` | `hammerly-worker-v1` | Background summary and knowledge-indexing work |
 | `hammerly.support.events.v1` | fact | future Core support flow | none | Reserved for real ticket lifecycle events |
 | `hammerly.ai.events.v1.DLT` | dead letter | worker recoverer | operator | Exhausted records from AI events |
 | `hammerly.ai.jobs.v1.DLT` | dead letter | worker recoverer | operator | Exhausted records from AI jobs |
 | `hammerly.support.events.v1.DLT` | dead letter | future support consumer | operator | Reserved with the support topic |
 
-The local KRaft broker auto-creates used topics with three partitions. Production environments should pre-provision the base and DLT topics with their desired replication factor and retention policy.
+The local KRaft broker auto-creates used topics with three partitions. The production lifecycle script
+pre-provisions the two active base topics and their DLTs with three partitions and replication factor
+`1`. The reserved support topic is not provisioned until it has a real producer/consumer.
 
 Conversation-related records use the exact `conversationId` as the Kafka key. Kafka therefore preserves order within a conversation/partition, while the worker's three listener containers can process different partitions concurrently. A future ticket producer must use `ticketId`. No global ordering is promised.
 
@@ -87,9 +89,26 @@ Topic: `hammerly.ai.jobs.v1`. AI emits this at or after the configured stored-me
 
 `messages` is the bounded recent-history snapshot already held by AI (20 messages by default). Carrying the context in the durable job lets a restarted worker summarize its backlog even if the live recent-history key later expires. The worker writes a separate summary document at `hammerly:conversation:summary:{userId}:{conversationId}`.
 
-## Defined but not emitted in Phase 4
+### `embedding.requested` version 1
 
-These contracts prepare clean boundaries without inventing UI actions or business behavior.
+Topic: `hammerly.ai.jobs.v1`; key: the knowledge document UUID. Core stores the knowledge document
+and this event in the transactional outbox in the same PostgreSQL transaction. The relay can retry
+publication without losing the ingestion request, and the worker's stable chunk IDs plus atomic
+replacement make duplicate delivery safe.
+
+```json
+{
+  "documentId": "d9d91fe2-9e3a-47cf-b446-31b40ead4277"
+}
+```
+
+The worker marks the document `PROCESSING`, chunks and embeds it, atomically replaces its pgvector
+rows, then marks it `READY` and increments the knowledge-base version. An exhausted failure reaches
+`hammerly.ai.jobs.v1.DLT` and records a sanitized `FAILED` status where possible.
+
+## Defined but not emitted
+
+These reserved contracts prepare clean boundaries without inventing UI actions or business behavior.
 
 ### `conversation.completed` version 1
 
@@ -119,20 +138,6 @@ Topic: `hammerly.support.events.v1`; key `ticketId`. A support producer would us
 ```
 
 There is no current ticket creation product flow, producer, UI, or worker consumer.
-
-### `embedding.requested` version 1
-
-Topic: `hammerly.ai.jobs.v1`; use a stable source/conversation key appropriate to the future ingestion flow.
-
-```json
-{
-  "sourceType": "KNOWLEDGE_DOCUMENT",
-  "sourceId": "auction-bidding-guide",
-  "content": "Document content to be chunked in Phase 5."
-}
-```
-
-The worker contains only the typed payload and `EmbeddingJobHandler` interface. Publishing this contract before a Phase 5 implementation is enabled will exhaust retries and reach the jobs DLT. Phase 4 does not chunk content, call an embedding model, create vectors, use pgvector, or perform retrieval.
 
 ## Delivery behavior
 

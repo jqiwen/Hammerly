@@ -203,8 +203,9 @@ AI's `/internal/**` endpoints require `HAMMERLY_AI_INTERNAL_TOKEN` when it is co
 The Kafka worker is different from the request-driven services. [`deploy-worker.yml`](.github/workflows/deploy-worker.yml)
 is manual-only: its multi-stage Docker build packages the Worker and publishes
 `hammerly-worker:${GITHUB_SHA}` plus `latest` to Artifact Registry. Worker tests remain in CI, and the
-publication workflow never starts a Worker Pool or other runtime. Kafka stays disabled in production
-until its provider, network path, and continuous worker runtime are restored deliberately.
+publication workflow never starts a Worker Pool or other runtime. The reviewed PowerShell lifecycle
+scripts start or stop the private Kafka VM and Cloud Run Worker Pool separately, so they do not bypass
+the CI-to-CD gate for application images.
 
 The old GKE deployment and Phase 5 load-test Actions workflows have been removed from the Actions
 UI. Kubernetes/Helm examples, k6 scripts, retained results, and performance documentation remain
@@ -223,12 +224,33 @@ https://hammerly.jqiwen.com (GitHub Pages)
       ├── OpenAI (key from Secret Manager)
       ├── Upstash Redis over TCP/TLS (password from Secret Manager)
       └── Supabase PostgreSQL + pgvector (when RAG is enabled)
+
+Asynchronous only:
+hammerly-backend / hammerly-ai
+  → private 10.x:9092 Kafka KRaft broker (Compute Engine)
+    → hammerly-worker-v1 (Cloud Run Worker Pool)
+      → summaries, analytics, deduplication, and knowledge indexing
 ```
 
 Production AI uses Upstash's normal Redis TCP endpoint with TLS. Host, port, and SSL mode are
 non-secret GitHub variables; only the Redis password is injected from the Google Secret Manager
-secret `hammerly-redis-password`. The Upstash REST token is not used. Kafka remains disabled and no
-production Worker runtime is started by these workflows.
+secret `hammerly-redis-password`. The Upstash REST token is not used. Kafka has an explicit manual
+cost-control lifecycle and never owns or changes Redis configuration.
+
+Preview the Kafka/Worker resources before enabling them, then accept the PowerShell confirmation only
+after reviewing the displayed VM, disk, and continuously billed worker size:
+
+```powershell
+.\scripts\gcp\enable-demo-infra.ps1 -WhatIf
+.\scripts\gcp\enable-demo-infra.ps1
+.\scripts\gcp\disable-demo-infra.ps1
+```
+
+The default broker is configurable through `KAFKA_MACHINE_TYPE` or `-KafkaMachineType` and uses an
+`e2-small` VM with a 20 GB `pd-standard` boot disk in `us-west1-b`. The worker runs at one 1 vCPU / 1
+GiB instance while enabled and costs zero worker compute at `--instances=0`. See
+[`docs/deployment/gcp.md`](docs/deployment/gcp.md) for topic, firewall, smoke-test, inspection, deletion,
+and current pricing guidance.
 
 ### Local development versus production
 
@@ -236,7 +258,7 @@ production Worker runtime is started by these workflows.
 | --- | --- | --- |
 | PostgreSQL | Developer Supabase URL or test container | Secret Manager `SUPABASE_DB_URL` |
 | Redis | Docker Compose on `localhost:6379`, optional per flag | Upstash Redis over TCP/TLS; password from Secret Manager |
-| Kafka | Docker Compose on `localhost:9092`, optional per flag | Disabled for now; Worker image/runtime support retained |
+| Kafka | Docker Compose on `localhost:9092`, optional per flag | Private single-node KRaft VM plus manually scaled Cloud Run Worker Pool |
 | OpenAI | Ignored local file or environment variable | Secret Manager `OPENAI_API_KEY` |
 | Core-to-AI trust | Token optional on localhost | Secret Manager shared internal token |
 | GCP authentication | Not required | GitHub OIDC/WIF, no service-account key file |
