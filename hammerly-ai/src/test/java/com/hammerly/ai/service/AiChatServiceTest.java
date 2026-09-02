@@ -141,6 +141,7 @@ class AiChatServiceTest {
         assertEquals("Cached answer", result.answer());
         verify(modelClient, never()).chat(any(ModelRequest.class));
         verify(modelClient, never()).stream(any(ModelRequest.class));
+        verify(eventPublisher).publishSuccessfulTurn(any());
     }
 
     @Test

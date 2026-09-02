@@ -9,12 +9,10 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -30,18 +28,15 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
     private final KafkaEventProperties properties;
     private final RedisStateClient redis;
     private final AiMetrics metrics;
-    private final Executor summaryExecutor;
 
     public KafkaAiEventPublisher(KafkaTemplate<String, Object> kafkaTemplate,
                                  KafkaEventProperties properties,
                                  RedisStateClient redis,
-                                 AiMetrics metrics,
-                                 @Qualifier("kafkaEventExecutor") Executor executor) {
+                                 AiMetrics metrics) {
         this.kafkaTemplate = kafkaTemplate;
         this.properties = properties;
         this.redis = redis;
         this.metrics = metrics;
-        this.summaryExecutor = executor;
     }
 
     @Override
@@ -98,22 +93,14 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
         if (turn.storedMessageCount() < properties.summaryAfterMessages()) {
             return;
         }
-        try {
-            summaryExecutor.execute(() -> publishSummaryIfNeeded(turn, correlationId));
-        } catch (RuntimeException exception) {
-            metrics.kafkaPublishFailure("conversation.summary.requested");
-            log.warn("Kafka summary dispatch failed conversation={} errorType={}",
-                turn.conversationId(), rootCauseName(exception));
-        }
-    }
-
-    private void publishSummaryIfNeeded(SuccessfulAiTurn turn, UUID correlationId) {
         if (claimSummaryRequest(turn)) {
-            publishAsync(properties.jobsTopic(), turn.conversationId(), new AiEventEnvelope<>(
+            List<PendingPublish> pending = new ArrayList<>(1);
+            sendForBrokerAck(properties.jobsTopic(), turn.conversationId(), new AiEventEnvelope<>(
                 UUID.randomUUID(), "conversation.summary.requested", EVENT_VERSION,
                 turn.occurredAt(), PRODUCER, correlationId, turn.userId(), turn.conversationId(),
                 new ConversationSummaryRequestedPayload(
-                    turn.storedMessageCount(), turn.conversationSnapshot())));
+                    turn.storedMessageCount(), turn.conversationSnapshot())), pending);
+            awaitBrokerAcknowledgements(pending);
         }
     }
 
@@ -128,22 +115,6 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
             log.warn("Kafka summary request skipped because marker write failed conversation={} errorType={}",
                 turn.conversationId(), rootCauseName(exception));
             return false;
-        }
-    }
-
-    private void publishAsync(String topic, String key, AiEventEnvelope<?> event) {
-        try {
-            kafkaTemplate.send(topic, key, event).whenComplete((result, failure) -> {
-                if (failure == null) {
-                    metrics.kafkaPublishSuccess(event.eventType());
-                    return;
-                }
-                metrics.kafkaPublishFailure(event.eventType());
-                log.warn("Kafka event publish failed eventId={} eventType={} conversation={} errorType={}",
-                    event.eventId(), event.eventType(), event.conversationId(), rootCauseName(failure));
-            });
-        } catch (RuntimeException exception) {
-            recordPublishFailure(event, exception);
         }
     }
 
