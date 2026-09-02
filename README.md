@@ -106,6 +106,13 @@ evidence, not a production OpenAI capacity guarantee. See
 [baseline](docs/performance/phase5-baseline.md), and
 [configuration reference](docs/performance/phase5-configuration.md).
 
+The separate CI smoke test uses the same SSE script and deterministic provider: 15 VUs over 30
+seconds, with thresholds of under 1% stream errors, over 99% checks, first-event p95 under two
+seconds, and full-stream p95 under five seconds. Run it locally with
+`PROVIDER_MODE=loadtest ./scripts/load-test/run-phase5.sh smoke` (or
+`$env:PROVIDER_MODE='loadtest'; .\scripts\load-test\run-phase5.ps1 -Mode smoke` on PowerShell).
+The manual 100/500/1,000-VU benchmark remains separate and is never run by CI.
+
 ## Phase 6 — Prometheus and Grafana observability
 
 Core, AI, and Worker now expose Prometheus scrape endpoints, with a local Prometheus/Grafana stack
@@ -122,6 +129,10 @@ docker compose up -d --build
 Open Prometheus at <http://localhost:9090> and Grafana at <http://localhost:3001> (local development
 credentials: `admin` / `admin`). See the [Phase 6 observability guide](docs/observability/phase6.md)
 for architecture, PromQL, dashboard sections, security boundaries, validation, and shutdown steps.
+Prometheus loads alert rules from
+[`observability/prometheus/alerts.yml`](observability/prometheus/alerts.yml); validate them with
+`promtool check config observability/prometheus/prometheus.yml` (or the pinned Docker command in the
+guide) and view their state at <http://localhost:9090/alerts>.
 
 ## Phase 8 — GKE Autopilot and real autoscaling
 

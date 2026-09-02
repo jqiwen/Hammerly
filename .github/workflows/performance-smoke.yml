@@ -1,0 +1,70 @@
+name: Performance smoke
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Deterministic SSE smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      JWT_SECRET: ci-performance-smoke-secret-not-used-in-production
+      HAMMERLY_AI_PROFILE: loadtest
+      OPENAI_API_KEY: ""
+      HAMMERLY_RAG_ENABLED: "false"
+      HAMMERLY_REDIS_ENABLED: "true"
+      HAMMERLY_KAFKA_ENABLED: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate Prometheus configuration and alerts
+        run: >-
+          docker run --rm
+          -v "$PWD/observability/prometheus:/etc/prometheus:ro"
+          --entrypoint promtool
+          prom/prometheus:v3.13.2
+          check config /etc/prometheus/prometheus.yml
+
+      - name: Start deterministic smoke target
+        run: >-
+          docker compose up -d --build --wait --wait-timeout 300
+          redis postgres backend ai
+
+      - name: Verify application health
+        run: |
+          curl --fail --silent --show-error http://localhost:5000/actuator/health
+          curl --fail --silent --show-error http://localhost:5001/actuator/health
+
+      - name: Build pinned SSE-capable k6 image
+        run: docker compose --profile loadtest build k6
+
+      - name: Run 15-VU 30-second smoke test
+        run: |
+          docker compose --profile loadtest run --rm --no-deps \
+            -e HAMMERLY_LOAD_TEST_BASE_URL=http://backend:5000 \
+            -e HAMMERLY_LOAD_TEST_MODE=smoke \
+            -e PROVIDER_MODE=loadtest \
+            -e PHASE5_THINK_TIME=1s \
+            -e PHASE5_SUMMARY_EXPORT=/results/performance-smoke-summary.json \
+            k6 run /workspace/load-test/phase5/smoke.js
+
+      - name: Show service logs after a failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200 backend ai postgres redis
+
+      - name: Stop smoke services
+        if: always()
+        run: docker compose down -v --remove-orphans

@@ -27,9 +27,9 @@ export function concurrencyAt(elapsedMs) {
 
 export function smokeStages() {
   return [
-    { duration: envDuration('SMOKE_RAMP_DURATION', '10s'), target: 5 },
-    { duration: envDuration('SMOKE_HOLD_DURATION', '20s'), target: 10 },
-    { duration: envDuration('SMOKE_COOLDOWN_DURATION', '10s'), target: 0 },
+    { duration: envDuration('SMOKE_RAMP_DURATION', '5s'), target: 15 },
+    { duration: envDuration('SMOKE_HOLD_DURATION', '20s'), target: 15 },
+    { duration: envDuration('SMOKE_COOLDOWN_DURATION', '5s'), target: 0 },
   ];
 }
 

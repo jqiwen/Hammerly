@@ -33,9 +33,14 @@ export const options = {
     },
   },
   thresholds: {
-    hammerly_sse_stream_failure_rate: ['rate<0.20'],
-    hammerly_sse_first_event_latency: providerMode === 'loadtest'
-      ? ['p(95)<500'] : ['p(95)<5000'],
+    hammerly_sse_stream_failure_rate: [mode === 'full' ? 'rate<0.20' : 'rate<0.01'],
+    hammerly_sse_first_event_latency: [mode === 'full'
+      ? (providerMode === 'loadtest' ? 'p(95)<500' : 'p(95)<5000')
+      : 'p(95)<2000'],
+    ...(mode === 'smoke' ? {
+      checks: ['rate>0.99'],
+      hammerly_sse_stream_duration: ['p(95)<5000'],
+    } : {}),
     ...(expectRagSources ? { hammerly_sse_metadata_events: ['count>0'] } : {}),
     ...(mode === 'full' ? {
     'hammerly_sse_stream_failure_rate{concurrency:100}': ['rate<1.0'],

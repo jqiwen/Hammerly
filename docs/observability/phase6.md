@@ -14,6 +14,9 @@ management-only Actuator connector, while its application remains a Kafka consum
 
 Prometheus scrapes every five seconds. Grafana automatically provisions the Prometheus datasource
 and the **Hammerly — System Overview** dashboard. No dashboard import or datasource setup is needed.
+Prometheus also loads [`observability/prometheus/alerts.yml`](../../observability/prometheus/alerts.yml)
+at startup. The rules cover service availability, AI errors/latency/first-token latency, Kafka and
+worker failures/DLT, Redis degradation, and AI circuit-breaker state/rejections.
 
 ## Endpoints and access
 
@@ -21,6 +24,7 @@ and the **Hammerly — System Overview** dashboard. No dashboard import or datas
 | --- | --- |
 | Prometheus | <http://localhost:9090> |
 | Prometheus targets | <http://localhost:9090/targets> |
+| Prometheus alerts | <http://localhost:9090/alerts> |
 | Grafana | <http://localhost:3001> |
 | Core health / metrics | <http://localhost:5000/actuator/health> / <http://localhost:5000/actuator/prometheus> |
 | AI health / metrics | <http://localhost:5001/actuator/health> / <http://localhost:5001/actuator/prometheus> |
@@ -157,6 +161,18 @@ path or management network before opting production metrics back in. Grafana's d
 is development-only and must not be used for an internet-reachable deployment.
 
 ## Validation and known limitations
+
+Validate both the Prometheus configuration and its referenced alert rules with the pinned image:
+
+```bash
+docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
+  --entrypoint promtool prom/prometheus:v3.13.2 \
+  check config /etc/prometheus/prometheus.yml
+```
+
+After `docker compose up`, view rule state at <http://localhost:9090/alerts> or query
+`/api/v1/rules`. Prometheus and application metrics remain local Compose tooling; production
+profiles continue to expose health only and do not publish metrics on public listeners.
 
 Phase 6 was smoke-validated with all three Prometheus targets UP and the existing deterministic Phase 5
 provider. The run exercised real SSE completion, Redis hits/misses, controlled recovered 5xx/retry

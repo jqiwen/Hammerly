@@ -83,9 +83,10 @@ The completed Phase 5 `workflow_dispatch` action has been removed from the GitHu
 suite remains intentionally runnable from this directory with the scripts below, and all historical
 results and methodology remain checked in.
 
-The smoke schedule ramps to 10 VUs. The full default schedule has a 30-second warm-up, 15-second
-ramps, two-minute holds at 100, 500, and 1,000 VUs, and a 30-second cooldown. Think time defaults to
-10 seconds with ±25% jitter.
+The CI smoke schedule ramps to 15 VUs for a five-second ramp, holds for 20 seconds, and ramps down
+for five seconds. It fails when stream errors reach 1%, checks fall to 99% or lower, first-event p95
+reaches two seconds, or full-stream p95 reaches five seconds. CI uses a one-second think time and the
+deterministic `loadtest` provider; it never reads an OpenAI API key. Run the same target locally:
 
 ```powershell
 $env:HAMMERLY_LOAD_TEST_BASE_URL='http://localhost:5000'
@@ -104,6 +105,11 @@ export PHASE5_RUN_ID=a001
 ./scripts/load-test/run-phase5.sh smoke
 ./scripts/load-test/run-phase5.sh full
 ```
+
+The `smoke` command is the short CI-sized regression check. The `full` command remains a separate,
+manual benchmark with a 30-second warm-up, 15-second ramps, two-minute holds at 100, 500, and 1,000
+VUs, and a 30-second cooldown; CI never runs those stages. Think time defaults to 10 seconds with
+±25% jitter unless overridden (CI sets it to one second).
 
 `PHASE5_RUN_ID` must be a distinct four-character hexadecimal shard for consecutive runs; this
 prevents a previous response-cache entry from turning a cold-cache benchmark into a cache benchmark.
