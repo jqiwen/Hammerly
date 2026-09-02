@@ -4,6 +4,7 @@ set -euo pipefail
 KAFKA_USER="kafka"
 KAFKA_GROUP="kafka"
 KAFKA_HOME="/opt/kafka"
+KAFKA_LOG_DIR="${KAFKA_HOME}/logs"
 KAFKA_DATA_DIR="/var/lib/kafka/data"
 KAFKA_CONFIG_DIR="/etc/kafka"
 KAFKA_CONFIG_FILE="${KAFKA_CONFIG_DIR}/server.properties"
@@ -45,7 +46,7 @@ if ! id "${KAFKA_USER}" >/dev/null 2>&1; then
 fi
 
 install -d -o "${KAFKA_USER}" -g "${KAFKA_GROUP}" -m 0750 \
-  "${KAFKA_DATA_DIR}" "${KAFKA_CONFIG_DIR}"
+  "${KAFKA_LOG_DIR}" "${KAFKA_DATA_DIR}" "${KAFKA_CONFIG_DIR}"
 
 cat > "${KAFKA_CONFIG_FILE}" <<EOF
 process.roles=broker,controller
@@ -78,8 +79,10 @@ if [[ ! -f "${KAFKA_DATA_DIR}/meta.properties" ]]; then
     --cluster-id "${cluster_id}" \
     --standalone \
     --config "${KAFKA_CONFIG_FILE}"
-  chown -R "${KAFKA_USER}:${KAFKA_GROUP}" "${KAFKA_DATA_DIR}"
 fi
+
+chown -R "${KAFKA_USER}:${KAFKA_GROUP}" "${KAFKA_LOG_DIR}" "${KAFKA_DATA_DIR}"
+chmod 0750 "${KAFKA_LOG_DIR}" "${KAFKA_DATA_DIR}"
 
 cat > /etc/systemd/system/kafka.service <<EOF
 [Unit]

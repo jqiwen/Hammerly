@@ -47,15 +47,19 @@ function Invoke-Gcloud {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
     $previousWhatIf = $WhatIfPreference
+    $previousErrorAction = $ErrorActionPreference
     try {
         $WhatIfPreference = $false
+        $ErrorActionPreference = "Continue"
         $output = @(& gcloud @Arguments 2>&1)
-        if ($LASTEXITCODE -ne 0) {
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
             $message = ($output | ForEach-Object { "$_" }) -join [Environment]::NewLine
-            throw "gcloud command failed: gcloud $($Arguments -join ' ')`n$message"
+            throw "gcloud command failed with exit code $exitCode`: gcloud $($Arguments -join ' ')`n$message"
         }
         return (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
     } finally {
+        $ErrorActionPreference = $previousErrorAction
         $WhatIfPreference = $previousWhatIf
     }
 }
@@ -64,14 +68,18 @@ function Invoke-GcloudSensitive {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
     $previousWhatIf = $WhatIfPreference
+    $previousErrorAction = $ErrorActionPreference
     try {
         $WhatIfPreference = $false
+        $ErrorActionPreference = "Continue"
         $output = @(& gcloud @Arguments 2>$null)
-        if ($LASTEXITCODE -ne 0) {
-            throw "A sensitive gcloud read failed; command output was suppressed."
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            throw "A sensitive gcloud read failed with exit code $exitCode; command output was suppressed."
         }
         return (($output | ForEach-Object { "$_" }) -join [Environment]::NewLine).Trim()
     } finally {
+        $ErrorActionPreference = $previousErrorAction
         $WhatIfPreference = $previousWhatIf
     }
 }
@@ -85,7 +93,8 @@ function Test-GcloudResource {
         $WhatIfPreference = $false
         $ErrorActionPreference = "Continue"
         $output = @(& gcloud @Arguments 2>&1)
-        if ($LASTEXITCODE -eq 0) {
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
             return $true
         }
 
@@ -93,7 +102,7 @@ function Test-GcloudResource {
         if ($message -match "(?i)\bNOT_FOUND\b|cannot find|not found|was not found") {
             return $false
         }
-        throw "gcloud existence probe failed: gcloud $($Arguments -join ' ')`n$message"
+        throw "gcloud existence probe failed with exit code $exitCode`: gcloud $($Arguments -join ' ')`n$message"
     } finally {
         $ErrorActionPreference = $previousErrorAction
         $WhatIfPreference = $previousWhatIf
@@ -101,25 +110,23 @@ function Test-GcloudResource {
 }
 
 function Get-KafkaVmDetails {
-    $json = Invoke-Gcloud -Arguments @(
-        "compute", "instances", "list",
-        "--project=$ProjectId",
-        "--format=json(name,zone,status,machineType,disks,networkInterfaces)"
-    )
-    $instances = @($json | ConvertFrom-Json)
-    $matches = @($instances | Where-Object {
-        $null -ne $_ -and
-        $null -ne $_.PSObject.Properties["name"] -and
-        [string]$_.PSObject.Properties["name"].Value -eq $KafkaVm
-    })
-    if ($matches.Count -gt 1) {
-        throw "More than one Compute Engine VM is named '$KafkaVm'."
-    }
-    if ($matches.Count -eq 0) {
+    if (-not (Test-GcloudResource -Arguments @(
+        "compute", "instances", "describe", $KafkaVm,
+        "--project=$ProjectId", "--zone=$Zone", "--format=value(status)"
+    ))) {
         return $null
     }
 
-    $item = $matches[0]
+    $json = Invoke-Gcloud -Arguments @(
+        "compute", "instances", "describe", $KafkaVm,
+        "--project=$ProjectId", "--zone=$Zone",
+        "--format=json(name,status,machineType,networkInterfaces)"
+    )
+    $item = $json | ConvertFrom-Json
+    if ($null -eq $item) {
+        throw "Kafka VM '$KafkaVm' exists but its details could not be read."
+    }
+
     if ($null -eq $item.networkInterfaces -or $item.networkInterfaces.Count -eq 0) {
         throw "Kafka VM '$KafkaVm' has no network interface."
     }
@@ -129,8 +136,8 @@ function Get-KafkaVmDetails {
         $accessConfigs = @($accessConfigProperty.Value)
     }
     return [pscustomobject]@{
-        Name = $item.name
-        Zone = ($item.zone -split "/")[-1]
+        Name = $KafkaVm
+        Zone = $Zone
         Status = $item.status
         MachineType = ($item.machineType -split "/")[-1]
         PrivateIp = $item.networkInterfaces[0].networkIP
@@ -320,9 +327,16 @@ function Set-GitHubVariable {
         [Parameter(Mandatory = $true)][string]$Value
     )
 
-    $output = @(& gh variable set $Name --repo $GitHubRepository --body $Value 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not update GitHub repository variable '$Name': $($output -join [Environment]::NewLine)"
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = @(& gh variable set $Name --repo $GitHubRepository --body $Value 2>&1)
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            throw "Could not update GitHub repository variable '$Name' (exit code $exitCode): $($output -join [Environment]::NewLine)"
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
     }
 }
 
@@ -554,8 +568,12 @@ Write-Host "Billable resource plan (no Memorystore):"
 if ($null -eq $kafka) {
     Write-Host "  CREATE VM: $KafkaVm in $Zone, $KafkaMachineType, $KafkaBootDiskSizeGb GB $KafkaBootDiskType boot disk."
     Write-Host "  A temporary ephemeral external IPv4 is used only for first boot, then removed."
-} else {
+} elseif ($kafka.Status -eq "TERMINATED") {
+    Write-Host "  START VM: $KafkaVm in $($kafka.Zone), $($kafka.MachineType), existing disk and private IP retained."
+} elseif ($kafka.Status -eq "RUNNING") {
     Write-Host "  REUSE VM: $KafkaVm in $($kafka.Zone), $($kafka.MachineType), private IP retained."
+} else {
+    throw "Kafka VM '$KafkaVm' is in unsupported state '$($kafka.Status)'; expected RUNNING or TERMINATED."
 }
 if ($workerExists) {
     Write-Host "  UPDATE/SCALE worker pool: $WorkerPool to $WorkerInstances instance(s), each 1 vCPU / 1 GiB."
@@ -608,15 +626,19 @@ if ($null -eq $kafka) {
         "--image-family=ubuntu-2404-lts-amd64", "--image-project=ubuntu-os-cloud",
         "--metadata=hammerly-kafka-version=$KafkaVersion",
         "--metadata-from-file=startup-script=$startupScript",
-        "--no-service-account", "--shielded-secure-boot", "--shielded-vtpm",
+        "--no-service-account", "--no-scopes", "--shielded-secure-boot", "--shielded-vtpm",
         "--shielded-integrity-monitoring", "--quiet"
     ) | Write-Host
     $kafka = Get-KafkaVmDetails
-} elseif ($kafka.Status -ne "RUNNING") {
+} elseif ($kafka.Status -eq "TERMINATED") {
     Invoke-Gcloud -Arguments @(
         "compute", "instances", "start", $KafkaVm,
         "--project=$ProjectId", "--zone=$($kafka.Zone)", "--quiet"
     ) | Write-Host
+} elseif ($kafka.Status -eq "RUNNING") {
+    Write-Host "REUSE VM: $KafkaVm is already running in $($kafka.Zone)."
+} else {
+    throw "Kafka VM '$KafkaVm' is in unsupported state '$($kafka.Status)'; expected RUNNING or TERMINATED."
 }
 
 $effectiveZone = if ($null -eq $kafka) { $Zone } else { $kafka.Zone }
