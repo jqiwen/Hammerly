@@ -335,19 +335,3 @@ docker compose ps
 | Grafana | http://localhost:3001 |
 
 
----
-
-
-## Project Highlights
-
-```text
-Full Stack
-React + Spring Boot + PostgreSQL + Authentication + Redis
-
-AI / Distributed Systems
-RAG + LLM + pgvector + Kafka + Async Processing
-
-Cloud / Performance
-Docker + Kubernetes + GCP + k6 + Prometheus + Grafana
-```
-
