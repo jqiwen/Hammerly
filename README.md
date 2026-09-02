@@ -334,49 +334,9 @@ docker compose ps
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3001 |
 
-Health checks:
-
-```bash
-curl http://localhost:5000/actuator/health
-curl http://localhost:5001/actuator/health
-curl http://localhost:5002/actuator/health
-```
-
-Expected response:
-
-```json
-{"status":"UP"}
-```
-
-Stop the environment:
-
-```bash
-docker compose down
-```
 
 ---
 
-## Repository Structure
-
-```text
-Hammerly/
-│
-├── hammerly-ui/          React + TypeScript frontend
-├── hammerly-backend/     Core Spring Boot API
-├── hammerly-ai/          AI, RAG, SSE, and Redis service
-├── hammerly-worker/      Kafka background worker
-│
-├── k8s/                  Kubernetes / GKE manifests
-├── load-test/            k6 performance tests and results
-├── observability/        Prometheus and Grafana
-├── scripts/              Local and GCP management scripts
-├── docs/                 Architecture, deployment, and performance docs
-│
-├── docker-compose.yml
-└── README.md
-```
-
----
 
 ## Project Highlights
 
@@ -390,18 +350,4 @@ RAG + LLM + pgvector + Kafka + Async Processing
 Cloud / Performance
 Docker + Kubernetes + GCP + k6 + Prometheus + Grafana
 ```
-
----
-
-## Documentation
-
-More detailed technical documentation is kept under `docs/`, including:
-
-- system architecture
-- Kafka event contracts
-- GCP deployment
-- Kubernetes / GKE deployment
-- observability
-- performance benchmarks
-- load-test evidence
 
