@@ -46,7 +46,7 @@ atomic chunk/vector replacement in pgvector
 READY + knowledge-base version increment
 ```
 
-Kafka is **not in the synchronous AI response path**. A stopped broker or worker does not block chat. Knowledge events are durable in the transactional outbox while Kafka is unavailable; after recovery the relay republishes pending rows. AI conversation analytics events remain best-effort side effects and do not change the chat result.
+AI waits only for a short, bounded Kafka broker acknowledgement when enqueueing conversation events; it never waits for `hammerly-worker` or downstream processing. A stopped broker or worker still does not fail chat. Knowledge events are durable in the transactional outbox while Kafka is unavailable; after recovery the relay republishes pending rows. AI conversation analytics events remain fail-open side effects and do not change the chat result.
 
 The repository contains:
 
@@ -71,9 +71,9 @@ The distributed rate limiter defaults to 20 requests per trusted user per 60-sec
 
 ## Phase 4 — Kafka and async worker
 
-After a complete answer and successful Redis conversation append, AI schedules two `message.created` facts. When stored history reaches the configurable threshold (10 messages by default), AI also schedules one `conversation.summary.requested` job. A Redis `SET NX` marker prevents duplicate requests for that threshold.
+After a complete answer and successful Redis conversation append, AI enqueues two `message.created` facts. When stored history reaches the configurable threshold (10 messages by default), AI also enqueues one `conversation.summary.requested` job. A Redis `SET NX` marker prevents duplicate requests for that threshold.
 
-All conversation records use `conversationId` as their Kafka key. The local broker uses three partitions: events for one conversation remain ordered, while different conversations can run in parallel. AI sends on a dedicated bounded executor and uses short producer timeouts; callbacks record success/failure without changing the chat result.
+All conversation records use `conversationId` as their Kafka key. The local broker uses three partitions: events for one conversation remain ordered, while different conversations can run in parallel. AI waits only for the configured short Kafka broker acknowledgement; `hammerly-worker` and all downstream processing remain asynchronous. Timeout and send failures are recorded without changing the chat result.
 
 The worker uses group `hammerly-worker-v1`, `auto.offset.reset=earliest`, disabled auto-commit, and `MANUAL_IMMEDIATE` acknowledgment. It acknowledges only after processing returns successfully. Delivery is at least once. A Redis processing lock coordinates concurrent duplicates, and a completed marker at `hammerly:worker:processed:{eventId}` suppresses redelivery for seven days.
 

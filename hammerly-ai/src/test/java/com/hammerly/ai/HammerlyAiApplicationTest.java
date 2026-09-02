@@ -5,12 +5,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hammerly.ai.config.KafkaEventProperties;
 import com.hammerly.ai.redis.InMemoryRedisStateClient;
 import com.hammerly.ai.redis.RedisStateClient;
 import com.hammerly.ai.rag.NoOpRagRetrievalService;
 import com.hammerly.ai.rag.RagRetrievalService;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +38,12 @@ class HammerlyAiApplicationTest {
     @Autowired
     RagRetrievalService ragRetrievalService;
 
+    @Autowired
+    KafkaProperties kafkaProperties;
+
+    @Autowired
+    KafkaEventProperties kafkaEventProperties;
+
     @Test
     void contextLoads() {
         org.junit.jupiter.api.Assertions.assertInstanceOf(
@@ -47,6 +56,18 @@ class HammerlyAiApplicationTest {
             NoOpRagRetrievalService.class, ragRetrievalService);
         org.junit.jupiter.api.Assertions.assertTrue(
             ragRetrievalService.retrieve("How do I bid?").chunks().isEmpty());
+    }
+
+    @Test
+    void kafkaProducerUsesColdStartTolerantBoundedTimeouts() {
+        org.junit.jupiter.api.Assertions.assertEquals("2000",
+            kafkaProperties.getProducer().getProperties().get("max.block.ms"));
+        org.junit.jupiter.api.Assertions.assertEquals("1000",
+            kafkaProperties.getProducer().getProperties().get("request.timeout.ms"));
+        org.junit.jupiter.api.Assertions.assertEquals("2000",
+            kafkaProperties.getProducer().getProperties().get("delivery.timeout.ms"));
+        org.junit.jupiter.api.Assertions.assertEquals(Duration.ofMillis(1500),
+            kafkaEventProperties.brokerAckTimeout());
     }
 
     @Test
