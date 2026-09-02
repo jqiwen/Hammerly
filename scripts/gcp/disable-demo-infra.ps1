@@ -94,7 +94,7 @@ $kafka = Get-KafkaVmDetails
 
 Write-Host "Disable plan (Upstash, Supabase, Core, and AI resources are retained):"
 Write-Host "  Scale worker pool '$WorkerPool' to 0 if it exists: $workerExists"
-Write-Host "  Set HAMMERLY_KAFKA_ENABLED=false on '$CoreService' and '$AiService' and in GitHub variables."
+Write-Host "  Set HAMMERLY_KAFKA_ENABLED=false and KAFKA_BOOTSTRAP_SERVERS=kafka-disabled.invalid:9092 on '$CoreService', '$AiService', and in GitHub variables."
 if ($null -eq $kafka) {
     Write-Host "  Kafka VM '$KafkaVm' does not exist."
 } elseif ($DeleteKafka) {
@@ -127,13 +127,14 @@ foreach ($service in @($CoreService, $AiService)) {
         Invoke-Gcloud -Arguments @(
             "run", "services", "update", $service,
             "--project=$ProjectId", "--region=$Region",
-            "--update-env-vars=HAMMERLY_KAFKA_ENABLED=false", "--quiet"
+            "--update-env-vars=HAMMERLY_KAFKA_ENABLED=false,KAFKA_BOOTSTRAP_SERVERS=kafka-disabled.invalid:9092", "--quiet"
         ) | Write-Host
     }
 }
 
 if (-not $SkipGitHubVariables) {
     Set-GitHubVariable -Name "HAMMERLY_KAFKA_ENABLED" -Value "false"
+    Set-GitHubVariable -Name "KAFKA_BOOTSTRAP_SERVERS" -Value "kafka-disabled.invalid:9092"
 }
 
 if ($null -ne $kafka -and $kafka.Status -ne "TERMINATED") {

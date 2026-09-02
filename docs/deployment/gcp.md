@@ -424,8 +424,8 @@ Disable the worker and broker while retaining the VM and disk:
 ```
 
 The OFF workflow first scales the Worker Pool to zero, then sets only
-`HAMMERLY_KAFKA_ENABLED=false` on Core, AI, and the GitHub repository variable, and finally stops the
-Kafka VM. `KAFKA_BOOTSTRAP_SERVERS` is retained for a faster restart. Upstash, Supabase, the worker
+`HAMMERLY_KAFKA_ENABLED=false` and `KAFKA_BOOTSTRAP_SERVERS=kafka-disabled.invalid:9092` on Core, AI,
+and the GitHub repository variables, and finally stops the Kafka VM. Upstash, Supabase, the worker
 image, both Cloud Run services, their min-instance settings, and Kafka disk data are untouched.
 
 Permanent Kafka deletion is separate and explicit:

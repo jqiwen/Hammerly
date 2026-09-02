@@ -80,11 +80,22 @@ function Test-GcloudResource {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
     $previousWhatIf = $WhatIfPreference
+    $previousErrorAction = $ErrorActionPreference
     try {
         $WhatIfPreference = $false
-        & gcloud @Arguments *> $null
-        return $LASTEXITCODE -eq 0
+        $ErrorActionPreference = "Continue"
+        $output = @(& gcloud @Arguments 2>&1)
+        if ($LASTEXITCODE -eq 0) {
+            return $true
+        }
+
+        $message = ($output | ForEach-Object { "$_" }) -join [Environment]::NewLine
+        if ($message -match "(?i)\bNOT_FOUND\b|cannot find|not found|was not found") {
+            return $false
+        }
+        throw "gcloud existence probe failed: gcloud $($Arguments -join ' ')`n$message"
     } finally {
+        $ErrorActionPreference = $previousErrorAction
         $WhatIfPreference = $previousWhatIf
     }
 }
@@ -95,7 +106,12 @@ function Get-KafkaVmDetails {
         "--project=$ProjectId",
         "--format=json(name,zone,status,machineType,disks,networkInterfaces)"
     )
-    $matches = @($json | ConvertFrom-Json | Where-Object { $_.name -eq $KafkaVm })
+    $instances = @($json | ConvertFrom-Json)
+    $matches = @($instances | Where-Object {
+        $null -ne $_ -and
+        $null -ne $_.PSObject.Properties["name"] -and
+        [string]$_.PSObject.Properties["name"].Value -eq $KafkaVm
+    })
     if ($matches.Count -gt 1) {
         throw "More than one Compute Engine VM is named '$KafkaVm'."
     }
@@ -166,14 +182,6 @@ function Assert-UpstashConfiguration {
         throw "Required existing Upstash password secret '$RedisPasswordSecret' was not found."
     }
 
-    $memorystoreJson = Invoke-Gcloud -Arguments @(
-        "redis", "instances", "list", "--project=$ProjectId", "--region=$Region",
-        "--format=json(name,state)"
-    )
-    $memorystore = @($memorystoreJson | ConvertFrom-Json)
-    if ($memorystore.Count -gt 0) {
-        Write-Warning "Memorystore instances exist in $Region. This script will not read, modify, create, stop, or delete them."
-    }
     Write-Host "Upstash preflight passed (host configured, port 6379, TLS enabled, Secret Manager reference present)."
     return $redisHost
 }
@@ -561,6 +569,25 @@ if (-not $PSCmdlet.ShouldProcess("$ProjectId/$Region", $action)) {
     return
 }
 
+foreach ($serviceState in @(
+    [pscustomobject]@{ Name = $CoreService; Configuration = $coreConfiguration },
+    [pscustomobject]@{ Name = $AiService; Configuration = $aiConfiguration }
+)) {
+    if ((Get-CloudRunEnvValue -Service $serviceState.Configuration -Name "HAMMERLY_KAFKA_ENABLED") -ne "false") {
+        Invoke-Gcloud -Arguments @(
+            "run", "services", "update", $serviceState.Name,
+            "--project=$ProjectId", "--region=$Region",
+            "--update-env-vars=HAMMERLY_KAFKA_ENABLED=false", "--quiet"
+        ) | Write-Host
+    }
+}
+if ($workerExists) {
+    Invoke-Gcloud -Arguments @(
+        "run", "worker-pools", "update", $WorkerPool,
+        "--project=$ProjectId", "--region=$Region", "--instances=0", "--quiet"
+    ) | Write-Host
+}
+
 Ensure-FirewallRule -Name $KafkaAllowRule -Action ALLOW -Priority 900 `
     -SourceRange $subnetCidr -Rule "tcp:9092"
 Ensure-FirewallRule -Name $KafkaDenyRule -Action DENY -Priority 1000 `
@@ -595,12 +622,12 @@ if ($null -eq $kafka) {
 $effectiveZone = if ($null -eq $kafka) { $Zone } else { $kafka.Zone }
 Wait-KafkaVmRunning -VmZone $effectiveZone
 Wait-KafkaReady -VmZone $effectiveZone
-Ensure-KafkaTopics -VmZone $effectiveZone
 $kafka = Get-KafkaVmDetails
 if ($null -eq $kafka -or [string]::IsNullOrWhiteSpace($kafka.PrivateIp)) {
     throw "Kafka VM '$KafkaVm' has no private IP."
 }
 $kafkaBootstrap = "$($kafka.PrivateIp):9092"
+Ensure-KafkaTopics -VmZone $effectiveZone
 
 if (-not [string]::IsNullOrWhiteSpace($kafka.ExternalIp)) {
     Invoke-Gcloud -Arguments @(
@@ -611,17 +638,12 @@ if (-not [string]::IsNullOrWhiteSpace($kafka.ExternalIp)) {
     Write-Host "Removed the Kafka VM's temporary external IPv4 address."
 }
 
-if (-not $SkipGitHubVariables) {
-    Set-GitHubVariable -Name "KAFKA_BOOTSTRAP_SERVERS" -Value $kafkaBootstrap
-    Set-GitHubVariable -Name "HAMMERLY_KAFKA_ENABLED" -Value "true"
-}
-
 foreach ($service in @($CoreService, $AiService)) {
     Invoke-Gcloud -Arguments @(
         "run", "services", "update", $service,
         "--project=$ProjectId", "--region=$Region",
         "--network=$Network", "--subnet=$Subnet", "--vpc-egress=private-ranges-only",
-        "--update-env-vars=HAMMERLY_KAFKA_ENABLED=true,KAFKA_BOOTSTRAP_SERVERS=$kafkaBootstrap",
+        "--update-env-vars=HAMMERLY_KAFKA_ENABLED=false,KAFKA_BOOTSTRAP_SERVERS=$kafkaBootstrap",
         "--quiet"
     ) | Write-Host
 }
@@ -671,6 +693,16 @@ Invoke-Gcloud -Arguments @(
 Wait-WorkerGroup -VmZone $effectiveZone
 Publish-WorkerSmokeEvent -VmZone $effectiveZone
 
+foreach ($service in @($CoreService, $AiService)) {
+    Invoke-Gcloud -Arguments @(
+        "run", "services", "update", $service,
+        "--project=$ProjectId", "--region=$Region",
+        "--network=$Network", "--subnet=$Subnet", "--vpc-egress=private-ranges-only",
+        "--update-env-vars=HAMMERLY_KAFKA_ENABLED=true,KAFKA_BOOTSTRAP_SERVERS=$kafkaBootstrap",
+        "--quiet"
+    ) | Write-Host
+}
+
 $aiConfiguration = Get-CloudRunService -Service $AiService
 $coreConfiguration = Get-CloudRunService -Service $CoreService
 foreach ($serviceState in @(
@@ -695,6 +727,11 @@ $worker = $workerJson | ConvertFrom-Json
 $workerInstanceCount = Get-WorkerManualInstanceCount -WorkerConfiguration $worker
 if ($workerInstanceCount -lt 1) {
     throw "Worker pool '$WorkerPool' is not configured with an active manual instance."
+}
+
+if (-not $SkipGitHubVariables) {
+    Set-GitHubVariable -Name "KAFKA_BOOTSTRAP_SERVERS" -Value $kafkaBootstrap
+    Set-GitHubVariable -Name "HAMMERLY_KAFKA_ENABLED" -Value "true"
 }
 
 Write-Host "Kafka demo infrastructure is ON."
