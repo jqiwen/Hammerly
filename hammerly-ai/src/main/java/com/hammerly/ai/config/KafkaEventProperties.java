@@ -14,6 +14,7 @@ public record KafkaEventProperties(
     @NotBlank String eventsTopic,
     @NotBlank String jobsTopic,
     @Min(2) int summaryAfterMessages,
-    @NotNull Duration summaryRequestMarkerTtl
+    @NotNull Duration summaryRequestMarkerTtl,
+    @NotNull Duration brokerAckTimeout
 ) {
 }

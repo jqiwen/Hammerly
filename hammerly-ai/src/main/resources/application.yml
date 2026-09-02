@@ -59,6 +59,7 @@ hammerly:
     jobs-topic: ${HAMMERLY_KAFKA_AI_JOBS_TOPIC:hammerly.ai.jobs.v1}
     summary-after-messages: ${HAMMERLY_AI_SUMMARY_AFTER_MESSAGES:10}
     summary-request-marker-ttl: ${HAMMERLY_AI_SUMMARY_REQUEST_MARKER_TTL:7d}
+    broker-ack-timeout: ${HAMMERLY_KAFKA_BROKER_ACK_TIMEOUT:400ms}
   ai:
     internal-token: ${HAMMERLY_AI_INTERNAL_TOKEN:}
     internal-token-required: ${HAMMERLY_AI_INTERNAL_TOKEN_REQUIRED:false}

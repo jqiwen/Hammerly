@@ -4,8 +4,14 @@ import com.hammerly.ai.config.KafkaEventProperties;
 import com.hammerly.ai.dto.ChatRole;
 import com.hammerly.ai.observability.AiMetrics;
 import com.hammerly.ai.redis.RedisStateClient;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -24,7 +30,7 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
     private final KafkaEventProperties properties;
     private final RedisStateClient redis;
     private final AiMetrics metrics;
-    private final Executor executor;
+    private final Executor summaryExecutor;
 
     public KafkaAiEventPublisher(KafkaTemplate<String, Object> kafkaTemplate,
                                  KafkaEventProperties properties,
@@ -35,34 +41,75 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
         this.properties = properties;
         this.redis = redis;
         this.metrics = metrics;
-        this.executor = executor;
+        this.summaryExecutor = executor;
     }
 
     @Override
     public void publishSuccessfulTurn(SuccessfulAiTurn turn) {
         try {
-            executor.execute(() -> publishTurn(turn));
+            UUID correlationId = UUID.randomUUID();
+            List<PendingPublish> pending = new ArrayList<>(2);
+            sendForBrokerAck(properties.eventsTopic(), turn.conversationId(), new AiEventEnvelope<>(
+                UUID.randomUUID(), "message.created", EVENT_VERSION, turn.occurredAt(), PRODUCER,
+                correlationId, turn.userId(), turn.conversationId(),
+                new MessageCreatedPayload(ChatRole.USER, turn.question(), turn.occurredAt())), pending);
+            sendForBrokerAck(properties.eventsTopic(), turn.conversationId(), new AiEventEnvelope<>(
+                UUID.randomUUID(), "message.created", EVENT_VERSION, turn.occurredAt(), PRODUCER,
+                correlationId, turn.userId(), turn.conversationId(),
+                new MessageCreatedPayload(ChatRole.ASSISTANT, turn.answer(), turn.occurredAt())), pending);
+            awaitBrokerAcknowledgements(pending);
+            dispatchSummaryRequest(turn, correlationId);
         } catch (RuntimeException exception) {
             metrics.kafkaPublishFailure("successful_turn");
-            log.warn("Kafka event dispatch failed eventType=successful_turn conversation={} errorType={}",
+            log.warn("Kafka turn publication failed open eventType=successful_turn conversation={} errorType={}",
                 turn.conversationId(), rootCauseName(exception));
         }
     }
 
-    private void publishTurn(SuccessfulAiTurn turn) {
-        UUID correlationId = UUID.randomUUID();
-        publish(properties.eventsTopic(), turn.conversationId(), new AiEventEnvelope<>(
-            UUID.randomUUID(), "message.created", EVENT_VERSION, turn.occurredAt(), PRODUCER,
-            correlationId, turn.userId(), turn.conversationId(),
-            new MessageCreatedPayload(ChatRole.USER, turn.question(), turn.occurredAt())));
-        publish(properties.eventsTopic(), turn.conversationId(), new AiEventEnvelope<>(
-            UUID.randomUUID(), "message.created", EVENT_VERSION, turn.occurredAt(), PRODUCER,
-            correlationId, turn.userId(), turn.conversationId(),
-            new MessageCreatedPayload(ChatRole.ASSISTANT, turn.answer(), turn.occurredAt())));
+    private void sendForBrokerAck(String topic, String key, AiEventEnvelope<?> event,
+                                  List<PendingPublish> pending) {
+        try {
+            pending.add(new PendingPublish(event, kafkaTemplate.send(topic, key, event)));
+        } catch (RuntimeException exception) {
+            recordPublishFailure(event, exception);
+        }
+    }
 
-        if (turn.storedMessageCount() >= properties.summaryAfterMessages()
-                && claimSummaryRequest(turn)) {
-            publish(properties.jobsTopic(), turn.conversationId(), new AiEventEnvelope<>(
+    private void awaitBrokerAcknowledgements(List<PendingPublish> pending) {
+        long deadline = System.nanoTime() + properties.brokerAckTimeout().toNanos();
+        for (PendingPublish publication : pending) {
+            try {
+                long remaining = Math.max(0, deadline - System.nanoTime());
+                publication.future().get(remaining, TimeUnit.NANOSECONDS);
+                metrics.kafkaPublishSuccess(publication.event().eventType());
+            } catch (TimeoutException | ExecutionException exception) {
+                recordPublishFailure(publication.event(), exception);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                recordPublishFailure(publication.event(), exception);
+                return;
+            } catch (RuntimeException exception) {
+                recordPublishFailure(publication.event(), exception);
+            }
+        }
+    }
+
+    private void dispatchSummaryRequest(SuccessfulAiTurn turn, UUID correlationId) {
+        if (turn.storedMessageCount() < properties.summaryAfterMessages()) {
+            return;
+        }
+        try {
+            summaryExecutor.execute(() -> publishSummaryIfNeeded(turn, correlationId));
+        } catch (RuntimeException exception) {
+            metrics.kafkaPublishFailure("conversation.summary.requested");
+            log.warn("Kafka summary dispatch failed conversation={} errorType={}",
+                turn.conversationId(), rootCauseName(exception));
+        }
+    }
+
+    private void publishSummaryIfNeeded(SuccessfulAiTurn turn, UUID correlationId) {
+        if (claimSummaryRequest(turn)) {
+            publishAsync(properties.jobsTopic(), turn.conversationId(), new AiEventEnvelope<>(
                 UUID.randomUUID(), "conversation.summary.requested", EVENT_VERSION,
                 turn.occurredAt(), PRODUCER, correlationId, turn.userId(), turn.conversationId(),
                 new ConversationSummaryRequestedPayload(
@@ -84,7 +131,7 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
         }
     }
 
-    private void publish(String topic, String key, AiEventEnvelope<?> event) {
+    private void publishAsync(String topic, String key, AiEventEnvelope<?> event) {
         try {
             kafkaTemplate.send(topic, key, event).whenComplete((result, failure) -> {
                 if (failure == null) {
@@ -96,10 +143,14 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
                     event.eventId(), event.eventType(), event.conversationId(), rootCauseName(failure));
             });
         } catch (RuntimeException exception) {
-            metrics.kafkaPublishFailure(event.eventType());
-            log.warn("Kafka event publish failed eventId={} eventType={} conversation={} errorType={}",
-                event.eventId(), event.eventType(), event.conversationId(), rootCauseName(exception));
+            recordPublishFailure(event, exception);
         }
+    }
+
+    private void recordPublishFailure(AiEventEnvelope<?> event, Throwable failure) {
+        metrics.kafkaPublishFailure(event.eventType());
+        log.warn("Kafka event publish failed eventId={} eventType={} conversation={} errorType={}",
+            event.eventId(), event.eventType(), event.conversationId(), rootCauseName(failure));
     }
 
     private String rootCauseName(Throwable throwable) {
@@ -108,5 +159,8 @@ public class KafkaAiEventPublisher implements AiEventPublisher {
             cause = cause.getCause();
         }
         return cause.getClass().getSimpleName();
+    }
+
+    private record PendingPublish(AiEventEnvelope<?> event, CompletableFuture<?> future) {
     }
 }

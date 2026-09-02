@@ -380,7 +380,7 @@ function Wait-WorkerGroup {
     throw "Worker pool did not join consumer group '$WorkerGroupId'. Last output: $lastOutput"
 }
 
-function Get-ConsumerOffsetTotal {
+function Get-ConsumerOffsetSnapshot {
     param(
         [Parameter(Mandatory = $true)][string]$VmZone,
         [Parameter(Mandatory = $true)][string]$Topic
@@ -390,14 +390,61 @@ function Get-ConsumerOffsetTotal {
         "sudo /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 " +
         "--describe --group '$WorkerGroupId' 2>/dev/null || true"
     )
-    [long]$total = 0
-    foreach ($line in ($output -split "`r?`n")) {
-        $columns = @($line.Trim() -split "\s+")
-        if ($columns.Count -ge 5 -and $columns[1] -eq $Topic -and $columns[3] -match "^\d+$") {
-            $total += [long]$columns[3]
+
+    $lines = @($output -split "`r?`n")
+    $headerLine = -1
+    $columnIndexes = @{}
+    for ($lineIndex = 0; $lineIndex -lt $lines.Count; $lineIndex++) {
+        $columns = @($lines[$lineIndex].Trim() -split "\s+")
+        if ($columns -contains "TOPIC" -and $columns -contains "PARTITION" -and
+                $columns -contains "CURRENT-OFFSET") {
+            for ($columnIndex = 0; $columnIndex -lt $columns.Count; $columnIndex++) {
+                $columnIndexes[$columns[$columnIndex]] = $columnIndex
+            }
+            $headerLine = $lineIndex
+            break
         }
     }
-    return $total
+
+    [long]$total = 0
+    $partitionOffsets = @()
+    if ($headerLine -ge 0) {
+        $topicIndex = [int]$columnIndexes["TOPIC"]
+        $partitionIndex = [int]$columnIndexes["PARTITION"]
+        $currentOffsetIndex = [int]$columnIndexes["CURRENT-OFFSET"]
+        $lastRequiredIndex = [Math]::Max($topicIndex, [Math]::Max($partitionIndex, $currentOffsetIndex))
+
+        for ($lineIndex = $headerLine + 1; $lineIndex -lt $lines.Count; $lineIndex++) {
+            $columns = @($lines[$lineIndex].Trim() -split "\s+")
+            if ($columns.Count -le $lastRequiredIndex -or $columns[$topicIndex] -ne $Topic -or
+                    $columns[$partitionIndex] -notmatch "^\d+$" -or
+                    $columns[$currentOffsetIndex] -notmatch "^\d+$") {
+                continue
+            }
+
+            $currentOffset = [long]$columns[$currentOffsetIndex]
+            $partitionOffsets += [pscustomobject]@{
+                Partition = [int]$columns[$partitionIndex]
+                CurrentOffset = $currentOffset
+            }
+            $total += $currentOffset
+        }
+    }
+
+    return [pscustomobject]@{
+        Total = $total
+        Partitions = @($partitionOffsets)
+    }
+}
+
+function Get-ConsumerOffsetTotal {
+    param(
+        [Parameter(Mandatory = $true)][string]$VmZone,
+        [Parameter(Mandatory = $true)][string]$Topic
+    )
+
+    $snapshot = Get-ConsumerOffsetSnapshot -VmZone $VmZone -Topic $Topic
+    return [long]$snapshot.Total
 }
 
 function Get-WorkerManualInstanceCount {
@@ -488,7 +535,8 @@ function Confirm-AiApplicationSmoke {
         throw "AI status did not report Redis and Kafka enabled."
     }
 
-    $before = Get-ConsumerOffsetTotal -VmZone $VmZone -Topic $KafkaEventsTopic
+    $baselineSnapshot = Get-ConsumerOffsetSnapshot -VmZone $VmZone -Topic $KafkaEventsTopic
+    $before = [long]$baselineSnapshot.Total
     $body = @{
         message = "Reply briefly to confirm Hammerly AI chat is available."
         history = @()
@@ -500,15 +548,28 @@ function Confirm-AiApplicationSmoke {
         throw "AI chat smoke test returned no answer."
     }
 
+    $finalSnapshot = $baselineSnapshot
     for ($attempt = 1; $attempt -le 30; $attempt++) {
-        $after = Get-ConsumerOffsetTotal -VmZone $VmZone -Topic $KafkaEventsTopic
+        $finalSnapshot = Get-ConsumerOffsetSnapshot -VmZone $VmZone -Topic $KafkaEventsTopic
+        $after = [long]$finalSnapshot.Total
         if ($after -ge ($before + 2)) {
             Write-Host "AI chat and asynchronous Kafka publication verified; worker consumed both message facts."
             return
         }
         Start-Sleep -Seconds 2
     }
-    throw "AI chat succeeded, but its two asynchronous message events were not observed as consumed."
+    $partitionDetails = if ($finalSnapshot.Partitions.Count -eq 0) {
+        "none"
+    } else {
+        (@($finalSnapshot.Partitions) | Sort-Object Partition | ForEach-Object {
+            "partition $($_.Partition)=$($_.CurrentOffset)"
+        }) -join ", "
+    }
+    throw (
+        "AI chat succeeded, but its two asynchronous message events were not observed as consumed. " +
+        "Baseline total offset: $before; final total offset: $($finalSnapshot.Total); " +
+        "expected delta: 2; current per-partition offsets: $partitionDetails"
+    )
 }
 
 if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
